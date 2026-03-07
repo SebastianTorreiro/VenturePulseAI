@@ -1,0 +1,19 @@
+openapi: 3.0.0
+info:
+  title: Signal Job Matcher API
+  version: 1.0.0
+paths:
+  /match:
+    post:
+      summary: Busca empresas basadas en el perfil del usuario.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cv_text: {type: string}
+                min_investment: {type: integer}
+      responses:
+        '200':
+          description: Lista de empresas rankeadas.

@@ -1,0 +1,32 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: vp_vector_db
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage:z
+    networks:
+      - vp_network
+
+  app:
+    build: .
+    container_name: vp_api
+    volumes:
+      - ./app:/app
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - qdrant
+    networks:
+      - vp_network
+
+networks:
+  vp_network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:
