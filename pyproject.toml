@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Default run is unit-only (CONVENTIONS §4.3): integration needs Docker,
+# paid hits billed providers and never runs in CI.
+addopts = "-m 'not integration and not paid'"
+markers = [
+    "integration: needs docker compose up; run with `pytest -m integration`",
+    "paid: hits paid providers; run manually only",
+]
