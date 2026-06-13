@@ -51,7 +51,10 @@ class Signal:
                 f"Signal.signal_strength must be within [0, 1], "
                 f"got {self.signal_strength}"
             )
-        if self.detected_at.tzinfo is None:
+        if (
+            self.detected_at.tzinfo is None
+            or self.detected_at.tzinfo.utcoffset(self.detected_at) is None
+        ):
             raise SignalValidationError(
                 "Signal.detected_at must be timezone-aware"
             )

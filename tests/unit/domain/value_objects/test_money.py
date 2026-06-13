@@ -1,8 +1,13 @@
 from decimal import Decimal
+from enum import Enum
 
 import pytest
 
 from app.domain.value_objects.money import Money
+
+
+class _NotAString(Enum):
+    USD = "USD"
 
 
 def test_money_rejects_negative_amount():
@@ -23,6 +28,19 @@ def test_money_rejects_non_decimal_amount():
 def test_money_rejects_lowercase_currency():
     with pytest.raises(ValueError, match="ISO 4217"):
         Money(amount=Decimal("100"), currency="usd")
+
+
+@pytest.mark.parametrize("non_string", [None, _NotAString.USD])
+def test_money_rejects_non_string_currency(non_string):
+    with pytest.raises(ValueError, match="ISO 4217"):
+        Money(amount=Decimal("100"), currency=non_string)
+
+
+def test_money_to_usd_rejects_non_decimal_rate():
+    money = Money(amount=Decimal("100"), currency="EUR")
+
+    with pytest.raises(ValueError, match="rate must be a Decimal, got float"):
+        money.to_usd(1.08)
 
 
 def test_money_to_usd_applies_rate_and_returns_new_instance():
