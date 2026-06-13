@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 
 import pytest
@@ -84,6 +84,17 @@ def test_signal_rejects_blank_summary():
 def test_signal_rejects_naive_detected_at():
     with pytest.raises(SignalValidationError, match="timezone-aware"):
         make_signal(detected_at=datetime(2026, 6, 1, 12, 0, 0))
+
+
+def test_signal_rejects_datetime_with_none_utcoffset():
+    class NoOffset(tzinfo):
+        def utcoffset(self, dt):
+            return None
+
+    aware_looking = datetime(2026, 6, 1, 12, 0, 0, tzinfo=NoOffset())
+
+    with pytest.raises(SignalValidationError, match="timezone-aware"):
+        make_signal(detected_at=aware_looking)
 
 
 @pytest.mark.parametrize("strength", [-0.1, 1.1])

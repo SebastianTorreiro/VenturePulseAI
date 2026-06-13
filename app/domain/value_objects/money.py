@@ -27,7 +27,9 @@ class Money:
             raise ValueError(f"Money.amount must be finite, got {self.amount}")
         if self.amount <= 0:
             raise ValueError(f"Money.amount must be positive, got {self.amount}")
-        if not _ISO_4217.fullmatch(self.currency):
+        if not isinstance(self.currency, str) or not _ISO_4217.fullmatch(
+            self.currency
+        ):
             raise ValueError(
                 "Money.currency must be an ISO 4217 code "
                 f"(3 uppercase letters), got {self.currency!r}"
@@ -41,6 +43,10 @@ class Money:
         """
         if self.currency == "USD":
             return Money(amount=self.amount, currency="USD")
+        if not isinstance(rate, Decimal):
+            raise ValueError(
+                f"Conversion rate must be a Decimal, got {type(rate).__name__}"
+            )
         if not rate.is_finite() or rate <= 0:
             raise ValueError(f"Conversion rate must be positive, got {rate}")
         return Money(amount=self.amount * rate, currency="USD")
