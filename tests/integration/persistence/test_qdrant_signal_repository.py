@@ -15,9 +15,11 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from qdrant_client import AsyncQdrantClient
 
 from app.domain.exceptions import RepositoryError
 from app.domain.entities.signal import FundingRound, JobOffer
@@ -150,6 +152,37 @@ def test_repository_rejects_dimension_mismatch_against_existing_collection(
             )
             with pytest.raises(RepositoryError, match="dimension"):
                 await QdrantSignalRepository.create(qdrant_settings, mismatched)
+
+    asyncio.run(scenario())
+
+
+def test_create_closes_client_on_ensure_collection_failure(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        # Create the collection with the real (384-dim) service first, so a
+        # second create() with a mismatched dimension fails in
+        # _ensure_collection and must close its own client.
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            mismatched = _FixedDimEmbeddingService(
+                model_id=embedding_service.model_id, dimensions=999
+            )
+            closed: list[AsyncQdrantClient] = []
+            real_close = AsyncQdrantClient.close
+
+            async def spy_close(self, *args, **kwargs):
+                closed.append(self)
+                return await real_close(self, *args, **kwargs)
+
+            with patch.object(AsyncQdrantClient, "close", spy_close):
+                with pytest.raises(RepositoryError, match="dimension"):
+                    await QdrantSignalRepository.create(
+                        qdrant_settings, mismatched
+                    )
+
+            # Exactly the failed repository's client was closed (the outer
+            # repo's teardown close happens later, outside the patch).
+            assert len(closed) == 1
 
     asyncio.run(scenario())
 

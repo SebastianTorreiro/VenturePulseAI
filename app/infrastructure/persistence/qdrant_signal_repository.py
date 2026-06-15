@@ -47,7 +47,11 @@ class QdrantSignalRepository(ISignalRepository):
         cls, settings: QdrantSettings, embedding_service: IEmbeddingService
     ) -> "QdrantSignalRepository":
         repository = cls(settings, embedding_service)
-        await repository._ensure_collection()
+        try:
+            await repository._ensure_collection()
+        except Exception:
+            await repository._client.close()
+            raise
         return repository
 
     @property
@@ -88,7 +92,12 @@ class QdrantSignalRepository(ISignalRepository):
     @staticmethod
     def _extract_dimension(info: models.CollectionInfo) -> int:
         vectors = info.config.params.vectors
-        if isinstance(vectors, dict):  # named vectors: take the only entry
+        if isinstance(vectors, dict):  # named vectors: expect exactly one
+            if len(vectors) != 1:
+                raise RepositoryError(
+                    "Collection has multiple named vector configs; "
+                    "expected exactly 1"
+                )
             vectors = next(iter(vectors.values()))
         return vectors.size
 

@@ -51,7 +51,7 @@ class LLMSettings(BaseModel):
 
     @model_validator(mode="after")
     def _claude_requires_api_key(self) -> "LLMSettings":
-        if self.provider == "claude" and self.claude_api_key is None:
+        if self.provider == "claude" and not (self.claude_api_key or "").strip():
             raise ValueError(
                 "LLM__PROVIDER=claude requires LLM__CLAUDE_API_KEY to be set"
             )
