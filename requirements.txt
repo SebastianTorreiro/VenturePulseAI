@@ -5,3 +5,5 @@ openai
 pydantic-settings
 httpx
 fastembed
+ollama
+feedparser
