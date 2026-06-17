@@ -1,0 +1,39 @@
+# Developer profile — single source of truth for CV generation.
+# Copy this file to developer_profile.yaml and fill it with your real data.
+# The .yaml version is gitignored; only this .example version is in the repo.
+#
+# Field names mirror the domain entities (DeveloperProfile / Experience /
+# Skill / Project). The CV generator receives a DeveloperProfile object,
+# not this file — wiring a YAML loader is a later step.
+
+full_name: "Your Full Name"
+headline: "Your Professional Headline"
+contact: "your.email@example.com"
+
+experiences:
+  - role: "Backend Engineer"
+    company: "Example Company"
+    achievements:
+      - "Built REST API serving 1M requests/day on FastAPI + PostgreSQL"
+      - "Reduced API p99 latency from 800ms to 120ms via caching"
+    skills_used:
+      - "Python"
+      - "FastAPI"
+      - "PostgreSQL"
+
+skills:
+  # Skill requires name, years (number) and level.
+  - name: "Python"
+    years: 5
+    level: "advanced"
+  - name: "PostgreSQL"
+    years: 4
+    level: "advanced"
+  - name: "Docker"
+    years: 3
+    level: "intermediate"
+
+projects:
+  - name: "Example side project"
+    description: "What it does and why it's interesting"
+    technologies: ["Python", "Qdrant", "FastAPI"]
