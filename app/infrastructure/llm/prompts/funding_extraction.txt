@@ -1,0 +1,21 @@
+You are a precise extraction engine. Given the text below from a startup funding article, extract the following fields. Use null when unknown. Do not invent.
+
+Fields:
+- amount_usd: numeric amount in USD as an integer (e.g., "$10M" → 10000000).
+  Output 0 only if no monetary amount is mentioned at all.
+- currency: original currency code (USD/EUR/GBP); null if unknown
+- series: one of SEED, A, B, C, GROWTH, or null
+- investors: array of investor names (empty array if none mentioned)
+- investment_thesis: short phrase describing the company's sector or business (null if unclear)
+
+EXAMPLES OF AMOUNT CONVERSION:
+- "$10M" or "$10 million" → amount_usd: 10000000
+- "$5M Series A" → amount_usd: 5000000
+- "$2.5 billion" → amount_usd: 2500000000
+- "raised €15M" → amount_usd: 15000000 (use parity if no USD figure)
+- "secured 8 million dollars" → amount_usd: 8000000
+
+TEXT:
+{raw_text}
+
+Respond with valid JSON only. No explanation, no markdown.
