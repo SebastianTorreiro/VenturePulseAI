@@ -2,7 +2,7 @@ You are a precise extraction engine. Given the text below from a startup funding
 
 Fields:
 - amount_usd: numeric amount in USD as an integer (e.g., "$10M" → 10000000).
-  Output 0 only if no dollar figure is mentioned at all.
+  Output 0 only if no monetary amount is mentioned at all.
 - currency: original currency code (USD/EUR/GBP); null if unknown
 - series: one of SEED, A, B, C, GROWTH, or null
 - investors: array of investor names (empty array if none mentioned)

@@ -45,13 +45,13 @@ def test_fetch_filters_signals_older_than_since():
     async def scenario():
         scraper = RSSSignalScraper(ScraperSettings())
         a_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
-        now = datetime.now(timezone.utc)
+        in_the_future = datetime.now(timezone.utc) + timedelta(days=1)
 
         from_last_year = [s async for s in scraper.fetch(a_year_ago)]
-        from_now = [s async for s in scraper.fetch(now)]
+        from_future = [s async for s in scraper.fetch(in_the_future)]
 
-        assert len(from_last_year) >= len(from_now)
-        assert len(from_now) == 0
+        assert len(from_last_year) >= len(from_future)
+        assert len(from_future) == 0
 
     asyncio.run(scenario())
 

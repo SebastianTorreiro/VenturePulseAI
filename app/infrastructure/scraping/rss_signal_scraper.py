@@ -3,6 +3,7 @@
 import calendar
 import html
 import logging
+import re
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -16,6 +17,8 @@ from app.domain.ports.signal_scraper import ISignalScraper
 from app.infrastructure.config.settings import ScraperSettings
 
 logger = logging.getLogger(__name__)
+
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 class RSSSignalScraper(ISignalScraper):
@@ -79,15 +82,22 @@ class RSSSignalScraper(ISignalScraper):
             return None
 
     @staticmethod
+    def _strip_html(text: str) -> str:
+        no_tags = _TAG_RE.sub(" ", text)
+        return re.sub(r"\s+", " ", no_tags).strip()
+
+    @staticmethod
     def _extract_content(entry) -> str:
-        title = html.unescape(entry.get("title", "") or "")
+        title = RSSSignalScraper._strip_html(
+            html.unescape(entry.get("title", "") or "")
+        )
         raw_body = (
             entry.get("summary")
             or entry.get("description")
             or entry.get("title")
             or ""
         )
-        body = html.unescape(raw_body)
+        body = RSSSignalScraper._strip_html(html.unescape(raw_body))
         parts = [part for part in (title, body) if part]
         # Avoid duplicating when the body fell back to the title.
         if len(parts) == 2 and parts[0] == parts[1]:

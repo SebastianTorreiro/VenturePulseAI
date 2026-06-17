@@ -54,6 +54,7 @@ class OllamaLLMService(ILLMService):
         self._model = settings.ollama_model
         # HttpUrl renders a trailing slash; the client wants a bare host.
         self._client = AsyncClient(host=str(settings.ollama_host).rstrip("/"))
+        self._funding_prompt_template = _PROMPT_PATH.read_text(encoding="utf-8")
 
     @classmethod
     async def create(cls, settings: LLMSettings) -> "OllamaLLMService":
@@ -100,7 +101,7 @@ class OllamaLLMService(ILLMService):
         return response.message.content or ""
 
     async def extract_funding_entities(self, raw_text: str) -> FundingEntities:
-        prompt = _load_funding_prompt(raw_text)
+        prompt = self._funding_prompt_template.format(raw_text=raw_text)
         try:
             response = await self._client.chat(
                 model=self._model,
@@ -113,11 +114,6 @@ class OllamaLLMService(ILLMService):
         except Exception as e:
             raise LLMError("Ollama funding extraction failed") from e
         return _to_funding_entities(data)
-
-
-def _load_funding_prompt(raw_text: str) -> str:
-    template = _PROMPT_PATH.read_text(encoding="utf-8")
-    return template.format(raw_text=raw_text)
 
 
 def _to_funding_entities(data: dict) -> FundingEntities:
