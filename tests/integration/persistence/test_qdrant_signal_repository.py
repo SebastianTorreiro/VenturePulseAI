@@ -343,3 +343,34 @@ def test_search_applies_min_amount_filter(qdrant_settings, embedding_service):
             assert results[0].signal.id == big.id
 
     asyncio.run(scenario())
+
+
+def test_get_by_id_returns_signal_when_exists(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            signal = _make_funding_round()
+            embedding = await embedding_service.embed(signal.summary)
+            await repo.save(signal, embedding)
+
+            retrieved = await repo.get_by_id(signal.id)
+
+            assert isinstance(retrieved, FundingRound)
+            assert retrieved.id == signal.id
+            assert retrieved.company_name == signal.company_name
+            assert retrieved.amount.amount == signal.amount.amount
+            assert retrieved.series is signal.series
+
+    asyncio.run(scenario())
+
+
+def test_get_by_id_raises_repository_error_when_not_found(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            with pytest.raises(RepositoryError):
+                await repo.get_by_id(new_signal_id())
+
+    asyncio.run(scenario())
