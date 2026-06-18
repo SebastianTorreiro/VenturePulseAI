@@ -13,6 +13,7 @@ from app.domain.ports.signal_repository import (
 )
 from app.domain.entities.signal import Signal
 from app.domain.value_objects.embedding import Embedding
+from app.domain.value_objects.identifiers import SignalId
 from app.infrastructure.config.settings import QdrantSettings
 from app.infrastructure.persistence._payload_codec import (
     payload_to_signal,
@@ -155,6 +156,27 @@ class QdrantSignalRepository(ISignalRepository):
         except Exception as e:
             raise RepositoryError("Failed to check signal existence") from e
         return len(points) > 0
+
+    async def get_by_id(self, signal_id: SignalId) -> Signal:
+        try:
+            results = await self._client.retrieve(
+                collection_name=self._collection_name,
+                ids=[str(signal_id)],
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            raise RepositoryError(
+                f"Failed to retrieve signal {signal_id}"
+            ) from e
+
+        if not results:
+            raise RepositoryError(
+                f"Signal {signal_id} not found in collection "
+                f"{self._collection_name!r}"
+            )
+
+        return payload_to_signal(results[0].payload)
 
     @staticmethod
     def _build_filter(filters: SignalFilter) -> models.Filter | None:

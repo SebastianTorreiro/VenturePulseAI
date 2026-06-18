@@ -9,6 +9,7 @@ from typing import Literal
 from app.domain.entities.signal import Signal
 from app.domain.value_objects.embedding import Embedding
 from app.domain.value_objects.enums import FundingSeries, Seniority
+from app.domain.value_objects.identifiers import SignalId
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,5 +76,14 @@ class ISignalRepository(ABC):
 
         Raises:
             RepositoryError: the vector store failed during the lookup.
+        """
+        ...
+
+    @abstractmethod
+    async def get_by_id(self, signal_id: SignalId) -> Signal:
+        """Retrieve a single signal by its identifier.
+
+        Raises:
+            RepositoryError: if the signal is not found or if I/O fails.
         """
         ...
