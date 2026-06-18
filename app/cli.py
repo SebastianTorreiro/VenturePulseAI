@@ -26,7 +26,7 @@ from app.domain.entities.developer_profile import (
     Project,
     Skill,
 )
-from app.domain.exceptions import ProfileIncompleteError
+from app.domain.exceptions import CVHallucinationError, ProfileIncompleteError
 from app.domain.value_objects.identifiers import SignalId, new_profile_id
 from app.infrastructure.config.container import build_container
 
@@ -133,7 +133,20 @@ def apply(
         )
         return await use_case.execute(sid, profile)
 
-    cv = asyncio.run(_run())
+    try:
+        cv = asyncio.run(_run())
+    except CVHallucinationError:
+        typer.echo(
+            "Error: CV generation failed after 3 attempts. "
+            "The LLM could not produce a response matching your profile facts.",
+            err=True,
+        )
+        typer.echo(
+            "Tip: this is a known limitation of the current validator. "
+            "Try enriching your profile with more specific, verbatim facts.",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     lines = [
         f"# CV — {cv.target_signal_id}\n",
