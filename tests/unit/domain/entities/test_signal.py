@@ -5,6 +5,7 @@ import pytest
 
 from app.domain.entities.signal import FundingRound, JobOffer, Signal
 from app.domain.exceptions import SignalValidationError
+from app.domain.ports.llm_service import FundingEntities
 from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.identifiers import new_signal_id
 from app.domain.value_objects.money import Money
@@ -137,3 +138,87 @@ def test_job_offer_normalizes_skills_to_lowercase_and_drops_blanks():
     offer = make_job_offer(required_skills=["  Python ", "QDRANT", "", "  "])
 
     assert offer.required_skills == ["python", "qdrant"]
+
+
+def _entities(amount: str = "10000000", **overrides) -> FundingEntities:
+    kwargs = dict(
+        amount=Money(amount=Decimal(amount), currency="USD"),
+        series=FundingSeries.A,
+        investors=("Sequoia Capital",),
+        investment_thesis="fintech payments",
+    )
+    kwargs.update(overrides)
+    return FundingEntities(**kwargs)
+
+
+def _from_extraction(**overrides) -> FundingRound:
+    kwargs = dict(
+        id=new_signal_id(),
+        source="techcrunch-rss",
+        raw_content="Acme Corp raised $10M in Series A.",
+        summary="Acme Corp raised $10M in Series A.",
+        detected_at=datetime.now(timezone.utc),
+        entities=_entities(),
+        series=FundingSeries.A,
+    )
+    kwargs.update(overrides)
+    return FundingRound.from_extraction(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "raw_content,expected_name",
+    [
+        ("Acme Corp raised $10M in Series A.", "Acme Corp"),
+        ("Beta Inc secures $5M seed round.", "Beta Inc"),
+        ("Gamma Ltd closed a $2M round.", "Gamma Ltd"),
+        ("Delta Co. announced its Series B.", "Delta Co."),
+    ],
+)
+def test_from_extraction_resolves_company_name_from_funding_verb(
+    raw_content, expected_name
+):
+    signal = _from_extraction(raw_content=raw_content, summary=raw_content)
+
+    assert signal.company_name == expected_name
+
+
+def test_from_extraction_defaults_company_name_to_unknown_without_match():
+    signal = _from_extraction(
+        raw_content="No funding verb here.", summary="No funding verb here."
+    )
+
+    assert signal.company_name == "Unknown"
+
+
+def test_from_extraction_computes_signal_strength_from_amount():
+    signal = _from_extraction(entities=_entities(amount="500000000"))  # $500M
+
+    assert signal.signal_strength == pytest.approx(0.5)
+
+
+def test_from_extraction_caps_signal_strength_at_one():
+    signal = _from_extraction(entities=_entities(amount="5000000000"))  # $5B
+
+    assert signal.signal_strength == 1.0
+
+
+def test_from_extraction_delegates_to_constructor_validation():
+    with pytest.raises(SignalValidationError, match="timezone-aware"):
+        _from_extraction(detected_at=datetime(2026, 6, 1, 12, 0, 0))
+
+
+def test_from_extraction_passes_through_entities_fields():
+    signal = _from_extraction(
+        entities=_entities(
+            investors=("Sequoia Capital", "a16z"), investment_thesis="AI infra"
+        )
+    )
+
+    assert signal.investors == ["Sequoia Capital", "a16z"]
+    assert signal.investment_thesis == "AI infra"
+
+
+def test_from_extraction_defaults_investment_thesis_to_empty_string():
+    signal = _from_extraction(entities=_entities(investment_thesis=None))
+
+    assert signal.investment_thesis == ""

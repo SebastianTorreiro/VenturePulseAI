@@ -5,7 +5,6 @@ adapters are wired in the composition root and injected as ports.
 """
 
 import logging
-import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,14 +20,6 @@ from app.domain.value_objects.identifiers import new_signal_id
 logger = logging.getLogger(__name__)
 
 _MAX_SUMMARY = 500
-# Signal strength normalizes the funding amount: $1B caps the score at 1.0.
-_STRENGTH_DENOMINATOR = 1_000_000_000
-# Company name = text before the first funding verb (naive MVP heuristic).
-_COMPANY_RE = re.compile(
-    r"(.+?)\s+(?:raised|raises|announced|announces|secured|secures|"
-    r"closed|closes)\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -78,20 +69,14 @@ class IngestSignalsUseCase:
                     logger.debug("series unknown, defaulting to SEED")
                     series = FundingSeries.SEED
 
-                signal = FundingRound(
+                signal = FundingRound.from_extraction(
                     id=new_signal_id(),
                     source=raw.source,
-                    company_name=_extract_company_name(raw.content),
+                    raw_content=raw.content,
                     summary=raw.content[:_MAX_SUMMARY],
                     detected_at=raw.fetched_at,
-                    signal_strength=min(
-                        1.0,
-                        float(entities.amount.amount) / _STRENGTH_DENOMINATOR,
-                    ),
-                    amount=entities.amount,
+                    entities=entities,
                     series=series,
-                    investors=list(entities.investors),
-                    investment_thesis=entities.investment_thesis or "",
                 )
 
                 if await self._repo.exists(signal.content_hash):
@@ -116,16 +101,3 @@ class IngestSignalsUseCase:
             skipped_no_entities=skipped_no_entities,
             errors=errors,
         )
-
-
-def _extract_company_name(text: str) -> str:
-    """Best-effort company name: text before the first funding verb.
-
-    MVP heuristic, no LLM. Returns 'Unknown' when nothing matches.
-    """
-    match = _COMPANY_RE.search(text)
-    if match:
-        name = match.group(1).strip()
-        if name:
-            return name
-    return "Unknown"

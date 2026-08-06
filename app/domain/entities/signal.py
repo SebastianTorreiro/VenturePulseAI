@@ -1,13 +1,42 @@
 """Market signals: the unit that gets embedded and stored (ADR-001)."""
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from app.domain.exceptions import SignalValidationError
 from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.identifiers import SignalId
 from app.domain.value_objects.money import Money
+
+if TYPE_CHECKING:
+    # Deferred to break the import cycle: app.domain.ports.__init__ pulls in
+    # cv_generator, which imports Signal from this module.
+    from app.domain.ports.llm_service import FundingEntities
+
+# Signal strength normalizes the funding amount: $1B caps the score at 1.0.
+_STRENGTH_DENOMINATOR = 1_000_000_000
+# Company name = text before the first funding verb (naive MVP heuristic).
+_COMPANY_RE = re.compile(
+    r"(.+?)\s+(?:raised|raises|announced|announces|secured|secures|"
+    r"closed|closes)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_company_name(text: str) -> str:
+    """Best-effort company name: text before the first funding verb.
+
+    MVP heuristic, no LLM. Returns 'Unknown' when nothing matches.
+    """
+    match = _COMPANY_RE.search(text)
+    if match:
+        name = match.group(1).strip()
+        if name:
+            return name
+    return "Unknown"
 
 
 @dataclass(kw_only=True)
@@ -89,6 +118,39 @@ class FundingRound(Signal):
             raise SignalValidationError(
                 f"FundingRound.amount must be positive, got {self.amount.amount}"
             )
+
+    @classmethod
+    def from_extraction(
+        cls,
+        *,
+        id: SignalId,
+        source: str,
+        raw_content: str,
+        summary: str,
+        detected_at: datetime,
+        entities: "FundingEntities",
+        series: FundingSeries,
+    ) -> "FundingRound":
+        """Build a FundingRound from raw text and LLM-extracted entities.
+
+        Resolves company_name (regex over raw_content) and signal_strength
+        (normalized amount) before delegating to the normal constructor, so
+        __post_init__ validation still runs unmodified.
+        """
+        return cls(
+            id=id,
+            source=source,
+            company_name=_extract_company_name(raw_content),
+            summary=summary,
+            detected_at=detected_at,
+            signal_strength=min(
+                1.0, float(entities.amount.amount) / _STRENGTH_DENOMINATOR
+            ),
+            amount=entities.amount,
+            series=series,
+            investors=list(entities.investors),
+            investment_thesis=entities.investment_thesis or "",
+        )
 
 
 @dataclass(kw_only=True)
