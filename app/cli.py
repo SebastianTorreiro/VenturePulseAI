@@ -28,7 +28,13 @@ from app.domain.entities.developer_profile import (
 )
 from app.domain.exceptions import CVHallucinationError, ProfileIncompleteError
 from app.domain.value_objects.identifiers import SignalId, new_profile_id
-from app.infrastructure.config.container import build_container
+from app.infrastructure.config.container import (
+    build_cv_generator,
+    build_embedder,
+    build_llm_service,
+    build_repository,
+    build_scraper,
+)
 
 app = typer.Typer(help="VenturePulseAI — job-market signal intelligence.")
 
@@ -40,13 +46,11 @@ def collect(
     """Scrape, extract, deduplicate, embed and persist funding signals."""
 
     async def _run():
-        container = await build_container()
-        use_case = IngestSignalsUseCase(
-            container.scraper,
-            container.llm_service,
-            container.embedder,
-            container.repository,
-        )
+        embedder = await build_embedder()
+        repository = await build_repository(embedder=embedder)
+        llm_service = await build_llm_service()
+        scraper = await build_scraper()
+        use_case = IngestSignalsUseCase(scraper, llm_service, embedder, repository)
         since = datetime.now(timezone.utc) - timedelta(days=days)
         return await use_case.execute(since)
 
@@ -67,10 +71,9 @@ def search(
     """Semantic search over stored signals, with optional amount filter."""
 
     async def _run():
-        container = await build_container()
-        use_case = SearchSignalsUseCase(
-            container.embedder, container.repository
-        )
+        embedder = await build_embedder()
+        repository = await build_repository(embedder=embedder)
+        use_case = SearchSignalsUseCase(embedder, repository)
         return await use_case.execute(
             query=query,
             limit=limit,
@@ -127,10 +130,9 @@ def apply(
         raise typer.Exit(1)
 
     async def _run():
-        container = await build_container()
-        use_case = GenerateCVUseCase(
-            container.repository, container.cv_generator
-        )
+        repository = await build_repository()
+        cv_generator = await build_cv_generator()
+        use_case = GenerateCVUseCase(repository, cv_generator)
         return await use_case.execute(sid, profile)
 
     try:
