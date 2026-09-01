@@ -43,22 +43,23 @@ class LLMCVGenerator(ICVGenerator):
 
     async def generate(self, profile: DeveloperProfile, target: Signal) -> CV:
         base_prompt = self._build_prompt(profile, target)
-        last_error: CVHallucinationError | None = None
+        last_error: CVHallucinationError | LLMError | None = None
 
         for attempt in range(_MAX_ATTEMPTS):
             prompt = base_prompt if attempt == 0 else base_prompt + _RETRY_SUFFIX
-            raw = await self._llm.complete(prompt)  # LLMError propagates
-            data = _parse_response(raw)
-            cv = self._build_cv(profile, target, data)
             try:
+                raw = await self._llm.complete(prompt)
+                data = _parse_response(raw)
+                cv = self._build_cv(profile, target, data)
                 cv.validate_against(profile)
                 return cv
-            except CVHallucinationError as e:
+            except (CVHallucinationError, LLMError) as e:
                 last_error = e
                 logger.warning(
-                    "CV hallucinated on attempt %d/%d: %s",
+                    "CV generation failed on attempt %d/%d (%s): %s",
                     attempt + 1,
                     _MAX_ATTEMPTS,
+                    type(e).__name__,
                     e,
                 )
 

@@ -52,6 +52,7 @@ class OllamaLLMService(ILLMService):
 
     def __init__(self, settings: LLMSettings) -> None:
         self._model = settings.ollama_model
+        self._num_ctx = settings.num_ctx
         # HttpUrl renders a trailing slash; the client wants a bare host.
         self._client = AsyncClient(host=str(settings.ollama_host).rstrip("/"))
         self._funding_prompt_template = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -94,7 +95,7 @@ class OllamaLLMService(ILLMService):
                 model=self._model,
                 messages=messages,
                 stream=False,
-                options={"temperature": 0},
+                options={"temperature": 0, "num_ctx": self._num_ctx},
             )
         except Exception as e:
             raise LLMError("Ollama completion failed") from e
@@ -108,7 +109,7 @@ class OllamaLLMService(ILLMService):
                 messages=[{"role": "user", "content": prompt}],
                 format=_FUNDING_SCHEMA,
                 stream=False,
-                options={"temperature": 0},
+                options={"temperature": 0, "num_ctx": self._num_ctx},
             )
             data = json.loads(response.message.content)
         except Exception as e:
