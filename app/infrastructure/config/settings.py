@@ -46,6 +46,7 @@ class LLMSettings(BaseModel):
     provider: Literal["ollama", "claude"] = "ollama"
     ollama_host: HttpUrl = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
+    num_ctx: int = 8192
     claude_api_key: str | None = None
     claude_model: str | None = "claude-sonnet-4-6"
 
