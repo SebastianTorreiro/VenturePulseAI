@@ -215,3 +215,29 @@ def test_execute_returns_correct_counts():
     assert result.skipped_duplicate == 1
     assert result.skipped_no_entities == 1
     assert result.errors == 1
+
+
+def test_execute_aggregates_results_across_multiple_scrapers():
+    repo = FakeRepo()
+    scraper_a = FakeScraper([_raw(content="Acme Corp raised $10M in Series A.")])
+    scraper_b = FakeScraper(
+        [
+            _raw(content="Beta Inc raised $5M in Series A."),
+            _raw(content="Gamma raised more funds this year."),  # no amount
+        ]
+    )
+    llm = FakeLLM(
+        [
+            _entities(amount="10000000"),
+            _entities(amount="5000000"),
+            _entities(amount=None),
+        ]
+    )
+
+    use_case = IngestSignalsUseCase([scraper_a, scraper_b], llm, FakeEmbedder(), repo)
+    result = asyncio.run(use_case.execute(_SINCE))
+
+    assert result.scraped == 3
+    assert result.ingested == 2
+    assert result.skipped_no_entities == 1
+    assert len(repo.saved) == 2
