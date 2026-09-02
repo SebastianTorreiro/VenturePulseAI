@@ -33,7 +33,7 @@ from app.infrastructure.config.container import (
     build_embedder,
     build_llm_service,
     build_repository,
-    build_scraper,
+    build_scrapers,
 )
 
 app = typer.Typer(help="VenturePulseAI — job-market signal intelligence.")
@@ -49,8 +49,8 @@ def collect(
         embedder = await build_embedder()
         repository = await build_repository(embedder=embedder)
         llm_service = await build_llm_service()
-        scraper = await build_scraper()
-        use_case = IngestSignalsUseCase(scraper, llm_service, embedder, repository)
+        scrapers = await build_scrapers()
+        use_case = IngestSignalsUseCase(scrapers, llm_service, embedder, repository)
         since = datetime.now(timezone.utc) - timedelta(days=days)
         return await use_case.execute(since)
 

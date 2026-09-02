@@ -38,7 +38,7 @@ class AppContainer:
     embedder: IEmbeddingService
     repository: ISignalRepository
     llm_service: ILLMService
-    scraper: ISignalScraper
+    scrapers: list[ISignalScraper]
     cv_generator: ICVGenerator
 
 
@@ -87,8 +87,8 @@ async def build_llm_service(settings: Settings | None = None) -> ILLMService:
     return await OllamaLLMService.create(settings.llm)
 
 
-async def build_scraper(settings: Settings | None = None) -> ISignalScraper:
-    """Build the signal scraper adapter.
+async def build_scrapers(settings: Settings | None = None) -> list[ISignalScraper]:
+    """Build one RSSSignalScraper per configured feed URL.
 
     Args:
         settings: Optional Settings override (useful in tests). If None,
@@ -97,7 +97,10 @@ async def build_scraper(settings: Settings | None = None) -> ISignalScraper:
     if settings is None:
         settings = get_settings()
 
-    return RSSSignalScraper(settings.scraper)
+    return [
+        RSSSignalScraper(url, settings.scraper.fetch_timeout_seconds)
+        for url in settings.scraper.rss_feed_urls
+    ]
 
 
 async def build_cv_generator(
@@ -137,7 +140,7 @@ async def build_container(settings: Settings | None = None) -> AppContainer:
     embedder = await build_embedder(settings)
     repository = await build_repository(settings, embedder=embedder)
     llm_service = await build_llm_service(settings)
-    scraper = await build_scraper(settings)
+    scrapers = await build_scrapers(settings)
     cv_generator = await build_cv_generator(settings, llm_service=llm_service)
 
     return AppContainer(
@@ -145,7 +148,7 @@ async def build_container(settings: Settings | None = None) -> AppContainer:
         embedder=embedder,
         repository=repository,
         llm_service=llm_service,
-        scraper=scraper,
+        scrapers=scrapers,
         cv_generator=cv_generator,
     )
 

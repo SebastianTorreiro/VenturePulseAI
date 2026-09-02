@@ -34,12 +34,12 @@ class IngestResult:
 class IngestSignalsUseCase:
     def __init__(
         self,
-        scraper: ISignalScraper,
+        scrapers: list[ISignalScraper],
         llm_service: ILLMService,
         embedder: IEmbeddingService,
         repository: ISignalRepository,
     ) -> None:
-        self._scraper = scraper
+        self._scrapers = scrapers
         self._llm = llm_service
         self._embedder = embedder
         self._repo = repository
@@ -51,48 +51,52 @@ class IngestSignalsUseCase:
         skipped_no_entities = 0
         errors = 0
 
-        async for raw in self._scraper.fetch(since):
-            scraped += 1
-            try:
-                entities = await self._llm.extract_funding_entities(raw.content)
+        for scraper in self._scrapers:
+            async for raw in scraper.fetch(since):
+                scraped += 1
+                try:
+                    entities = await self._llm.extract_funding_entities(
+                        raw.content
+                    )
 
-                # Quality filter: drop signals lacking a source or amount.
-                if not raw.source or not entities.amount:
-                    skipped_no_entities += 1
+                    # Quality filter: drop signals lacking a source or amount.
+                    if not raw.source or not entities.amount:
+                        skipped_no_entities += 1
+                        continue
+
+                    # Default an unknown series rather than dropping the
+                    # signal: keeps more data in the system (and a valid
+                    # FundingSeries avoids a None reaching the persistence
+                    # codec).
+                    series = entities.series
+                    if series is None:
+                        logger.debug("series unknown, defaulting to SEED")
+                        series = FundingSeries.SEED
+
+                    signal = FundingRound.from_extraction(
+                        id=new_signal_id(),
+                        source=raw.source,
+                        raw_content=raw.content,
+                        summary=raw.content[:_MAX_SUMMARY],
+                        detected_at=raw.fetched_at,
+                        entities=entities,
+                        series=series,
+                    )
+
+                    if await self._repo.exists(signal.content_hash):
+                        skipped_duplicate += 1
+                        continue
+
+                    embedding = await self._embedder.embed(
+                        f"{signal.company_name} {signal.summary}"
+                    )
+                    await self._repo.save(signal, embedding)
+                    ingested += 1
+
+                except (LLMError, EmbeddingError, RepositoryError) as e:
+                    logger.warning("signal skipped: %s", e)
+                    errors += 1
                     continue
-
-                # Default an unknown series rather than dropping the signal:
-                # keeps more data in the system (and a valid FundingSeries
-                # avoids a None reaching the persistence codec).
-                series = entities.series
-                if series is None:
-                    logger.debug("series unknown, defaulting to SEED")
-                    series = FundingSeries.SEED
-
-                signal = FundingRound.from_extraction(
-                    id=new_signal_id(),
-                    source=raw.source,
-                    raw_content=raw.content,
-                    summary=raw.content[:_MAX_SUMMARY],
-                    detected_at=raw.fetched_at,
-                    entities=entities,
-                    series=series,
-                )
-
-                if await self._repo.exists(signal.content_hash):
-                    skipped_duplicate += 1
-                    continue
-
-                embedding = await self._embedder.embed(
-                    f"{signal.company_name} {signal.summary}"
-                )
-                await self._repo.save(signal, embedding)
-                ingested += 1
-
-            except (LLMError, EmbeddingError, RepositoryError) as e:
-                logger.warning("signal skipped: %s", e)
-                errors += 1
-                continue
 
         return IngestResult(
             scraped=scraped,
