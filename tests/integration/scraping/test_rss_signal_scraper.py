@@ -21,7 +21,10 @@ from app.infrastructure.scraping.rss_signal_scraper import RSSSignalScraper
 
 
 def test_source_name_returns_expected_slug():
-    scraper = RSSSignalScraper(ScraperSettings())
+    settings = ScraperSettings()
+    scraper = RSSSignalScraper(
+        settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+    )
 
     assert scraper.source_name() == "techcrunch-rss"
 
@@ -29,7 +32,10 @@ def test_source_name_returns_expected_slug():
 @pytest.mark.integration
 def test_fetch_returns_at_least_one_raw_signal():
     async def scenario():
-        scraper = RSSSignalScraper(ScraperSettings())
+        settings = ScraperSettings()
+        scraper = RSSSignalScraper(
+            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+        )
         since = datetime.now(timezone.utc) - timedelta(days=30)
 
         signals = [signal async for signal in scraper.fetch(since)]
@@ -43,7 +49,10 @@ def test_fetch_returns_at_least_one_raw_signal():
 @pytest.mark.integration
 def test_fetch_filters_signals_older_than_since():
     async def scenario():
-        scraper = RSSSignalScraper(ScraperSettings())
+        settings = ScraperSettings()
+        scraper = RSSSignalScraper(
+            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+        )
         a_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
         in_the_future = datetime.now(timezone.utc) + timedelta(days=1)
 
@@ -59,7 +68,10 @@ def test_fetch_filters_signals_older_than_since():
 @pytest.mark.integration
 def test_fetch_returns_signals_with_required_fields():
     async def scenario():
-        scraper = RSSSignalScraper(ScraperSettings())
+        settings = ScraperSettings()
+        scraper = RSSSignalScraper(
+            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+        )
         since = datetime.now(timezone.utc) - timedelta(days=30)
 
         signals = [signal async for signal in scraper.fetch(since)]
@@ -78,10 +90,10 @@ def test_fetch_returns_signals_with_required_fields():
 @pytest.mark.integration
 def test_fetch_raises_scraping_error_on_network_failure():
     async def scenario():
-        settings = ScraperSettings(
-            rss_feed_url="https://this-domain-does-not-exist-12345.invalid/feed"
+        scraper = RSSSignalScraper(
+            "https://this-domain-does-not-exist-12345.invalid/feed",
+            ScraperSettings().fetch_timeout_seconds,
         )
-        scraper = RSSSignalScraper(settings)
         since = datetime.now(timezone.utc) - timedelta(days=30)
 
         with pytest.raises(ScrapingError):

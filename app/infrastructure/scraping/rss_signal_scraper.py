@@ -10,11 +10,11 @@ from urllib.parse import urlsplit
 
 import feedparser
 import httpx
+from pydantic import HttpUrl
 
 from app.domain.entities.signal import RawSignal
 from app.domain.exceptions import ScrapingError
 from app.domain.ports.signal_scraper import ISignalScraper
-from app.infrastructure.config.settings import ScraperSettings
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +24,17 @@ _TAG_RE = re.compile(r"<[^>]+>")
 class RSSSignalScraper(ISignalScraper):
     """Fetches raw signals from a single RSS feed.
 
-    No async factory: construction only stores settings; all I/O happens
-    in fetch(). RawSignal carries no business invariants — structural
-    validation belongs to the application boundary (ADR-005).
+    No async factory: construction only stores the feed URL and timeout;
+    all I/O happens in fetch(). RawSignal carries no business invariants —
+    structural validation belongs to the application boundary (ADR-005).
     """
 
-    def __init__(self, settings: ScraperSettings) -> None:
-        self._settings = settings
+    def __init__(self, feed_url: HttpUrl, fetch_timeout_seconds: int) -> None:
+        self._feed_url = feed_url
+        self._timeout = fetch_timeout_seconds
 
     def source_name(self) -> str:
-        host = urlsplit(str(self._settings.rss_feed_url)).hostname or ""
+        host = urlsplit(str(self._feed_url)).hostname or ""
         label = host.split(".")[0] if host else "feed"
         return f"{label}-rss"
 
@@ -43,14 +44,13 @@ class RSSSignalScraper(ISignalScraper):
         return self._fetch_impl(since)
 
     async def _fetch_impl(self, since: datetime) -> AsyncIterator[RawSignal]:
-        timeout = self._settings.fetch_timeout_seconds
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
             try:
-                response = await client.get(str(self._settings.rss_feed_url))
+                response = await client.get(str(self._feed_url))
                 response.raise_for_status()
             except Exception as e:
                 raise ScrapingError(
-                    f"Failed to fetch RSS feed {self._settings.rss_feed_url}"
+                    f"Failed to fetch RSS feed {self._feed_url}"
                 ) from e
 
             # feedparser is sync but fast and does not raise on bad markup

@@ -126,7 +126,7 @@ def _entities(
 
 def _use_case(scraper, llm, embedder=None, repo=None) -> IngestSignalsUseCase:
     return IngestSignalsUseCase(
-        scraper, llm, embedder or FakeEmbedder(), repo or FakeRepo()
+        [scraper], llm, embedder or FakeEmbedder(), repo or FakeRepo()
     )
 
 
