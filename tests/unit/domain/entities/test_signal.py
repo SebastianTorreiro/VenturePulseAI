@@ -172,6 +172,10 @@ def _from_extraction(**overrides) -> FundingRound:
         ("Beta Inc secures $5M seed round.", "Beta Inc"),
         ("Gamma Ltd closed a $2M round.", "Gamma Ltd"),
         ("Delta Co. announced its Series B.", "Delta Co."),
+        ("Acme Corp levantó $10M en una Serie A.", "Acme Corp"),
+        ("Beta Inc recaudó $5M en una ronda semilla.", "Beta Inc"),
+        ("Gamma Ltd cerró una ronda de $2M.", "Gamma Ltd"),
+        ("Delta Co. captó fondos en su Serie B.", "Delta Co."),
     ],
 )
 def test_from_extraction_resolves_company_name_from_funding_verb(
@@ -188,6 +192,26 @@ def test_from_extraction_defaults_company_name_to_unknown_without_match():
     )
 
     assert signal.company_name == "Unknown"
+
+
+def test_from_extraction_prefers_llm_company_name_over_regex():
+    signal = _from_extraction(
+        entities=_entities(company_name="Acme AI"),
+        raw_content="Totally Different Name raised $10M in Series A.",
+        summary="Totally Different Name raised $10M in Series A.",
+    )
+
+    assert signal.company_name == "Acme AI"
+
+
+def test_from_extraction_falls_back_to_regex_when_llm_company_name_is_blank():
+    signal = _from_extraction(
+        entities=_entities(company_name="   "),
+        raw_content="Acme Corp raised $10M in Series A.",
+        summary="Acme Corp raised $10M in Series A.",
+    )
+
+    assert signal.company_name == "Acme Corp"
 
 
 def test_from_extraction_computes_signal_strength_from_amount():

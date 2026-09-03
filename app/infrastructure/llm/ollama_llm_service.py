@@ -23,6 +23,7 @@ _PROMPT_PATH = Path(__file__).parent / "prompts" / "funding_extraction.txt"
 _FUNDING_SCHEMA = {
     "type": "object",
     "properties": {
+        "company_name": {"type": ["string", "null"]},
         "amount_usd": {"type": "number", "minimum": 0},
         "currency": {"type": ["string", "null"]},
         "series": {
@@ -33,6 +34,7 @@ _FUNDING_SCHEMA = {
         "investment_thesis": {"type": ["string", "null"]},
     },
     "required": [
+        "company_name",
         "amount_usd",
         "currency",
         "series",
@@ -123,6 +125,7 @@ def _to_funding_entities(data: dict) -> FundingEntities:
         series=_parse_series(data.get("series")),
         investors=tuple(data.get("investors") or ()),
         investment_thesis=data.get("investment_thesis"),
+        company_name=_parse_company_name(data.get("company_name")),
     )
 
 
@@ -143,4 +146,10 @@ def _parse_money(amount_usd: object) -> Money | None:
 def _parse_series(series: object) -> FundingSeries | None:
     if isinstance(series, str) and series.upper() in FundingSeries.__members__:
         return FundingSeries[series.upper()]
+    return None
+
+
+def _parse_company_name(company_name: object) -> str | None:
+    if isinstance(company_name, str) and company_name.strip():
+        return company_name.strip()
     return None

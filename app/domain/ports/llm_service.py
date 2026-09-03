@@ -21,6 +21,7 @@ class FundingEntities:
     series: FundingSeries | None = None
     investors: tuple[str, ...] = ()
     investment_thesis: str | None = None
+    company_name: str | None = None
 
 
 class ILLMService(ABC):

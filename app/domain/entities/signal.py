@@ -21,7 +21,9 @@ _STRENGTH_DENOMINATOR = 1_000_000_000
 # Company name = text before the first funding verb (naive MVP heuristic).
 _COMPANY_RE = re.compile(
     r"(.+?)\s+(?:raised|raises|announced|announces|secured|secures|"
-    r"closed|closes)\b",
+    r"closed|closes|"
+    r"levanta|levantó|recauda|recaudó|capta|captó|"
+    r"consigue|consiguió|cierra|cerró)\b",
     re.IGNORECASE,
 )
 
@@ -133,14 +135,20 @@ class FundingRound(Signal):
     ) -> "FundingRound":
         """Build a FundingRound from raw text and LLM-extracted entities.
 
-        Resolves company_name (regex over raw_content) and signal_strength
-        (normalized amount) before delegating to the normal constructor, so
-        __post_init__ validation still runs unmodified.
+        Resolves company_name (prefers the LLM-extracted entities.company_name;
+        falls back to a regex over raw_content when the LLM didn't find one)
+        and signal_strength (normalized amount) before delegating to the
+        normal constructor, so __post_init__ validation still runs
+        unmodified.
         """
         return cls(
             id=id,
             source=source,
-            company_name=_extract_company_name(raw_content),
+            company_name=(
+                entities.company_name.strip()
+                if entities.company_name and entities.company_name.strip()
+                else _extract_company_name(raw_content)
+            ),
             summary=summary,
             detected_at=detected_at,
             signal_strength=min(
