@@ -1,6 +1,8 @@
 You are a precise extraction engine. Given the text below from a startup funding article, extract the following fields. Use null when unknown. Do not invent.
 
 Fields:
+- company_name: the name of the company/startup raising the funding, exactly
+  as it appears in the text (e.g., "Acme Corp"); null if unclear
 - amount_usd: numeric amount in USD as an integer (e.g., "$10M" → 10000000).
   Output 0 only if no monetary amount is mentioned at all.
 - currency: original currency code (USD/EUR/GBP); null if unknown
