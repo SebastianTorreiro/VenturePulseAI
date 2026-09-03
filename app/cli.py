@@ -8,6 +8,9 @@ in another would use clients bound to an already-closed loop.
 """
 
 import asyncio
+import csv
+import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,7 +21,7 @@ import typer
 import yaml
 
 from app.application.generate_cv import GenerateCVUseCase
-from app.application.ingest_signals import IngestSignalsUseCase
+from app.application.ingest_signals import IngestResult, IngestSignalsUseCase
 from app.application.search_signals import SearchSignalsUseCase
 from app.domain.entities.developer_profile import (
     DeveloperProfile,
@@ -38,6 +41,17 @@ from app.infrastructure.config.container import (
 
 app = typer.Typer(help="VenturePulseAI — job-market signal intelligence.")
 
+_HISTORY_PATH = Path("data/collect_history.csv")
+_HISTORY_HEADER = [
+    "timestamp",
+    "scraped",
+    "ingested",
+    "skipped_duplicate",
+    "skipped_no_entities",
+    "errors",
+    "elapsed_seconds",
+]
+
 
 @app.command()
 def collect(
@@ -54,12 +68,18 @@ def collect(
         since = datetime.now(timezone.utc) - timedelta(days=days)
         return await use_case.execute(since)
 
+    start = time.perf_counter()
     result = asyncio.run(_run())
+    elapsed = time.perf_counter() - start
+
     typer.echo(f"Scraped:              {result.scraped}")
     typer.echo(f"Ingested:             {result.ingested}")
     typer.echo(f"Skipped (duplicate):  {result.skipped_duplicate}")
     typer.echo(f"Skipped (no data):    {result.skipped_no_entities}")
     typer.echo(f"Errors:               {result.errors}")
+    typer.echo(f"Elapsed:              {elapsed:.2f}s")
+
+    _append_history(result, elapsed)
 
 
 @app.command()
@@ -160,6 +180,26 @@ def apply(
     typer.echo(f"✓ CV written to {output}")
 
 
+def _append_history(result: IngestResult, elapsed: float) -> None:
+    _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not _HISTORY_PATH.exists()
+    with _HISTORY_PATH.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if is_new:
+            writer.writerow(_HISTORY_HEADER)
+        writer.writerow(
+            [
+                datetime.now(timezone.utc).isoformat(),
+                result.scraped,
+                result.ingested,
+                result.skipped_duplicate,
+                result.skipped_no_entities,
+                result.errors,
+                f"{elapsed:.2f}",
+            ]
+        )
+
+
 def _load_profile(path: Path) -> DeveloperProfile:
     """Build a DeveloperProfile from a YAML file.
 
@@ -222,4 +262,9 @@ def _load_profile(path: Path) -> DeveloperProfile:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("app").setLevel(logging.INFO)
     app()
