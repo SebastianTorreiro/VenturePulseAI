@@ -76,6 +76,11 @@ class IngestSignalsUseCase:
 
                 # Quality filter: drop signals lacking a source or amount.
                 if not raw.source or not entities.amount:
+                    logger.info(
+                        "skipped (no source/amount) from %s: %s",
+                        raw.source,
+                        raw.content[:80],
+                    )
                     skipped_no_entities += 1
                     continue
 

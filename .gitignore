@@ -211,6 +211,9 @@ Mejora de Desarrollo con Agentes IA.pdf
 # Real developer profile — only the .example version is tracked
 profile/developer_profile.yaml
 
+# Local run history — personal collection data, not for the repo
+data/*.csv
+
 
 # documentacion privada
 
