@@ -119,6 +119,18 @@ def test_content_hash_differs_when_summary_changes():
     assert base.content_hash != changed.content_hash
 
 
+def test_signal_embedding_text_defaults_to_company_and_summary():
+    signal = make_signal()
+
+    assert signal.embedding_text == f"{signal.company_name} {signal.summary}"
+
+
+def test_funding_round_inherits_default_embedding_text():
+    signal = make_funding_round()
+
+    assert signal.embedding_text == f"{signal.company_name} {signal.summary}"
+
+
 def test_funding_round_rejects_non_positive_amount():
     # Money's own invariant makes a non-positive amount unbuildable through
     # the public API, so bypass it to exercise the entity's defensive rule.
@@ -138,6 +150,20 @@ def test_job_offer_normalizes_skills_to_lowercase_and_drops_blanks():
     offer = make_job_offer(required_skills=["  Python ", "QDRANT", "", "  "])
 
     assert offer.required_skills == ["python", "qdrant"]
+
+
+def test_job_offer_embedding_text_prioritizes_title_and_skills():
+    offer = make_job_offer(
+        company_name="Acme AI",
+        title="Senior ML Engineer",
+        required_skills=["Python", "Qdrant"],
+        summary="Boilerplate RSS summary about the company's headquarters.",
+    )
+
+    assert offer.embedding_text == (
+        "Acme AI Senior ML Engineer python, qdrant "
+        "Boilerplate RSS summary about the company's headquarters."
+    )
 
 
 def _from_extraction(**overrides) -> FundingRound:

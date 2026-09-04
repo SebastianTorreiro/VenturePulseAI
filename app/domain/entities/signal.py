@@ -101,6 +101,17 @@ class Signal:
         canonical = f"{self.source}|{self.company_name.lower()}|{self.summary}"
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+    @property
+    def embedding_text(self) -> str:
+        """Text handed to IEmbeddingService.embed() for this signal.
+
+        Default: company name + summary. Subclasses whose summary alone
+        doesn't carry their most distinguishing facts (e.g. JobOffer,
+        where the RSS summary is often boilerplate) should override this
+        to foreground those facts instead.
+        """
+        return f"{self.company_name} {self.summary}"
+
 
 @dataclass(kw_only=True)
 class FundingRound(Signal):
@@ -179,6 +190,21 @@ class JobOffer(Signal):
         self.required_skills = [
             skill.strip().lower() for skill in self.required_skills if skill.strip()
         ]
+
+    @property
+    def embedding_text(self) -> str:
+        """Overrides Signal's default to foreground title and skills.
+
+        The RSS summary for a job posting is often boilerplate (a
+        headquarters line, a generic marketing sentence) rather than
+        the technical content that actually distinguishes one posting
+        from another — title and required_skills, both already
+        extracted by the LLM, carry that signal instead.
+        """
+        return (
+            f"{self.company_name} {self.title} "
+            f"{', '.join(self.required_skills)} {self.summary}"
+        )
 
     @classmethod
     def from_extraction(
