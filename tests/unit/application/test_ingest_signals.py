@@ -66,7 +66,11 @@ class FakeLLM(ILLMService):
 
 
 class FakeEmbedder(IEmbeddingService):
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
     async def embed(self, text: str) -> Embedding:
+        self.calls.append(text)
         return Embedding(vector=(0.1, 0.2, 0.3), model_id="fake")
 
     async def embed_batch(self, texts: list[str]) -> list[Embedding]:
@@ -253,6 +257,26 @@ def test_execute_ingests_job_offer_via_dispatch():
     assert isinstance(signal, JobOffer)
     assert signal.title == "Senior Backend Engineer"
     assert signal.required_skills == ["python", "fastapi"]
+
+
+def test_execute_embeds_job_offer_using_its_embedding_text():
+    repo = FakeRepo()
+    embedder = FakeEmbedder()
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring a Senior Backend Engineer.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities()])
+
+    asyncio.run(_use_case(scraper, llm, embedder=embedder, repo=repo).execute(_SINCE))
+
+    signal, _ = repo.saved[0]
+    assert embedder.calls == [signal.embedding_text]
+    # title/skills must actually be in the embedded text, not just the
+    # generic "{company_name} {summary}" the use case used to send.
+    assert "Senior Backend Engineer" in embedder.calls[0]
+    assert "python" in embedder.calls[0]
+    assert "fastapi" in embedder.calls[0]
 
 
 def test_execute_skips_job_offer_without_title():

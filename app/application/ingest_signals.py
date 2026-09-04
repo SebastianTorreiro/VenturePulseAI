@@ -86,9 +86,7 @@ class IngestSignalsUseCase:
                     skipped_duplicate += 1
                     continue
 
-                embedding = await self._embedder.embed(
-                    f"{signal.company_name} {signal.summary}"
-                )
+                embedding = await self._embedder.embed(signal.embedding_text)
                 await self._repo.save(signal, embedding)
                 ingested += 1
 
