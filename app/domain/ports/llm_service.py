@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from app.domain.value_objects.enums import FundingSeries
+from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.money import Money
 
 
@@ -24,6 +24,21 @@ class FundingEntities:
     company_name: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class JobEntities:
+    """Structured job-offer facts extracted from raw text.
+
+    Every field is optional: the LLM may fail to find a given fact in a
+    noisy source. Promotion to a JobOffer entity (which enforces
+    business invariants) happens in the application layer, not here.
+    """
+
+    company_name: str | None = None
+    title: str | None = None
+    required_skills: tuple[str, ...] = ()
+    seniority: Seniority | None = None
+
+
 class ILLMService(ABC):
     """Language-model reasoning behind a domain-typed interface."""
 
@@ -33,6 +48,19 @@ class ILLMService(ABC):
 
         Returns a FundingEntities with whatever could be identified;
         fields the model could not determine are left as None / empty.
+
+        Raises:
+            LLMError: the provider failed or returned an unparseable
+                response after exhausting adapter-level retries.
+        """
+        ...
+
+    @abstractmethod
+    async def extract_job_entities(self, raw_text: str) -> JobEntities:
+        """Extract title, required skills and seniority from raw text.
+
+        Returns a JobEntities with whatever could be identified; fields
+        the model could not determine are left as None / empty.
 
         Raises:
             LLMError: the provider failed or returned an unparseable

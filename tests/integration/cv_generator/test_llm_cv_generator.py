@@ -133,6 +133,9 @@ class _FakeLLMService(ILLMService):
     async def extract_funding_entities(self, raw_text: str) -> FundingEntities:
         raise NotImplementedError
 
+    async def extract_job_entities(self, raw_text: str):
+        raise NotImplementedError
+
 
 # --- tests using a real Ollama model ----------------------------------
 

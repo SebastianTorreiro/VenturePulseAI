@@ -23,7 +23,9 @@ from app.infrastructure.scraping.rss_signal_scraper import RSSSignalScraper
 def test_source_name_returns_expected_slug():
     settings = ScraperSettings()
     scraper = RSSSignalScraper(
-        settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+        settings.rss_feed_urls[0],
+        settings.fetch_timeout_seconds,
+        signal_type="funding_round",
     )
 
     assert scraper.source_name() == "techcrunch-rss"
@@ -34,7 +36,9 @@ def test_fetch_returns_at_least_one_raw_signal():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+            settings.rss_feed_urls[0],
+            settings.fetch_timeout_seconds,
+            signal_type="funding_round",
         )
         since = datetime.now(timezone.utc) - timedelta(days=30)
 
@@ -51,7 +55,9 @@ def test_fetch_filters_signals_older_than_since():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+            settings.rss_feed_urls[0],
+            settings.fetch_timeout_seconds,
+            signal_type="funding_round",
         )
         a_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
         in_the_future = datetime.now(timezone.utc) + timedelta(days=1)
@@ -70,7 +76,9 @@ def test_fetch_returns_signals_with_required_fields():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0], settings.fetch_timeout_seconds
+            settings.rss_feed_urls[0],
+            settings.fetch_timeout_seconds,
+            signal_type="funding_round",
         )
         since = datetime.now(timezone.utc) - timedelta(days=30)
 
@@ -93,6 +101,7 @@ def test_fetch_raises_scraping_error_on_network_failure():
         scraper = RSSSignalScraper(
             "https://this-domain-does-not-exist-12345.invalid/feed",
             ScraperSettings().fetch_timeout_seconds,
+            signal_type="funding_round",
         )
         since = datetime.now(timezone.utc) - timedelta(days=30)
 

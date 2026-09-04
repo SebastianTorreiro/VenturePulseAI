@@ -5,10 +5,10 @@ import pytest
 
 from app.domain.entities.signal import FundingRound, JobOffer, Signal
 from app.domain.exceptions import SignalValidationError
-from app.domain.ports.llm_service import FundingEntities
 from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.identifiers import new_signal_id
 from app.domain.value_objects.money import Money
+from tests.fixtures.factories import make_funding_entities, make_job_entities
 
 
 def make_signal(**overrides) -> Signal:
@@ -140,17 +140,6 @@ def test_job_offer_normalizes_skills_to_lowercase_and_drops_blanks():
     assert offer.required_skills == ["python", "qdrant"]
 
 
-def _entities(amount: str = "10000000", **overrides) -> FundingEntities:
-    kwargs = dict(
-        amount=Money(amount=Decimal(amount), currency="USD"),
-        series=FundingSeries.A,
-        investors=("Sequoia Capital",),
-        investment_thesis="fintech payments",
-    )
-    kwargs.update(overrides)
-    return FundingEntities(**kwargs)
-
-
 def _from_extraction(**overrides) -> FundingRound:
     kwargs = dict(
         id=new_signal_id(),
@@ -158,11 +147,26 @@ def _from_extraction(**overrides) -> FundingRound:
         raw_content="Acme Corp raised $10M in Series A.",
         summary="Acme Corp raised $10M in Series A.",
         detected_at=datetime.now(timezone.utc),
-        entities=_entities(),
+        entities=make_funding_entities(),
         series=FundingSeries.A,
     )
     kwargs.update(overrides)
     return FundingRound.from_extraction(**kwargs)
+
+
+def _job_from_extraction(**overrides) -> JobOffer:
+    kwargs = dict(
+        id=new_signal_id(),
+        source="remoteok-jobs",
+        raw_content="Acme Corp is hiring a Senior Backend Engineer.",
+        summary="Acme Corp is hiring a Senior Backend Engineer.",
+        detected_at=datetime.now(timezone.utc),
+        entities=make_job_entities(),
+        seniority=Seniority.SENIOR,
+        url="https://example.com/job/1",
+    )
+    kwargs.update(overrides)
+    return JobOffer.from_extraction(**kwargs)
 
 
 @pytest.mark.parametrize(
@@ -196,7 +200,7 @@ def test_from_extraction_defaults_company_name_to_unknown_without_match():
 
 def test_from_extraction_prefers_llm_company_name_over_regex():
     signal = _from_extraction(
-        entities=_entities(company_name="Acme AI"),
+        entities=make_funding_entities(company_name="Acme AI"),
         raw_content="Totally Different Name raised $10M in Series A.",
         summary="Totally Different Name raised $10M in Series A.",
     )
@@ -206,7 +210,7 @@ def test_from_extraction_prefers_llm_company_name_over_regex():
 
 def test_from_extraction_falls_back_to_regex_when_llm_company_name_is_blank():
     signal = _from_extraction(
-        entities=_entities(company_name="   "),
+        entities=make_funding_entities(company_name="   "),
         raw_content="Acme Corp raised $10M in Series A.",
         summary="Acme Corp raised $10M in Series A.",
     )
@@ -215,13 +219,13 @@ def test_from_extraction_falls_back_to_regex_when_llm_company_name_is_blank():
 
 
 def test_from_extraction_computes_signal_strength_from_amount():
-    signal = _from_extraction(entities=_entities(amount="500000000"))  # $500M
+    signal = _from_extraction(entities=make_funding_entities(amount="500000000"))  # $500M
 
     assert signal.signal_strength == pytest.approx(0.5)
 
 
 def test_from_extraction_caps_signal_strength_at_one():
-    signal = _from_extraction(entities=_entities(amount="5000000000"))  # $5B
+    signal = _from_extraction(entities=make_funding_entities(amount="5000000000"))  # $5B
 
     assert signal.signal_strength == 1.0
 
@@ -233,7 +237,7 @@ def test_from_extraction_delegates_to_constructor_validation():
 
 def test_from_extraction_passes_through_entities_fields():
     signal = _from_extraction(
-        entities=_entities(
+        entities=make_funding_entities(
             investors=("Sequoia Capital", "a16z"), investment_thesis="AI infra"
         )
     )
@@ -243,6 +247,65 @@ def test_from_extraction_passes_through_entities_fields():
 
 
 def test_from_extraction_defaults_investment_thesis_to_empty_string():
-    signal = _from_extraction(entities=_entities(investment_thesis=None))
+    signal = _from_extraction(entities=make_funding_entities(investment_thesis=None))
 
     assert signal.investment_thesis == ""
+
+
+def test_job_from_extraction_prefers_llm_company_name_over_regex():
+    signal = _job_from_extraction(
+        entities=make_job_entities(company_name="Acme AI"),
+        raw_content="A completely unrelated headline with no company mentioned.",
+    )
+
+    assert signal.company_name == "Acme AI"
+
+
+def test_job_from_extraction_falls_back_to_regex_when_llm_company_name_is_blank():
+    signal = _job_from_extraction(
+        entities=make_job_entities(company_name="   "),
+        raw_content="Acme Corp raised $10M in Series A.",
+    )
+
+    assert signal.company_name == "Acme Corp"
+
+
+def test_job_from_extraction_defaults_company_name_to_unknown_when_neither_source_helps():
+    signal = _job_from_extraction(
+        entities=make_job_entities(company_name=None),
+        raw_content="Senior Backend Engineer wanted, remote, competitive pay.",
+    )
+
+    assert signal.company_name == "Unknown"
+
+
+def test_job_from_extraction_signal_strength_is_constant_one():
+    signal = _job_from_extraction()
+
+    assert signal.signal_strength == 1.0
+
+
+def test_job_from_extraction_passes_through_entities_fields():
+    signal = _job_from_extraction(
+        entities=make_job_entities(
+            title="Staff Platform Engineer",
+            required_skills=("Python", "Kubernetes"),
+        )
+    )
+
+    assert signal.title == "Staff Platform Engineer"
+    assert signal.required_skills == ["python", "kubernetes"]
+
+
+def test_job_from_extraction_uses_the_seniority_param_not_entities():
+    signal = _job_from_extraction(
+        entities=make_job_entities(seniority=Seniority.JUNIOR),
+        seniority=Seniority.STAFF,
+    )
+
+    assert signal.seniority == Seniority.STAFF
+
+
+def test_job_from_extraction_delegates_to_constructor_validation():
+    with pytest.raises(SignalValidationError, match="timezone-aware"):
+        _job_from_extraction(detected_at=datetime(2026, 6, 1, 12, 0, 0))
