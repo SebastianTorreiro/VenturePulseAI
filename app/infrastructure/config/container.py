@@ -88,13 +88,7 @@ async def build_llm_service(settings: Settings | None = None) -> ILLMService:
 
 
 async def build_scrapers(settings: Settings | None = None) -> list[ISignalScraper]:
-    """Build one RSSSignalScraper per configured feed URL.
-
-    All currently configured feeds are funding-focused, so signal_type
-    is hardcoded to "funding_round" here. Wiring an actual job-board
-    source (e.g. We Work Remotely, Himalayas) will need a per-feed
-    config mechanism this doesn't have yet — deferred until one is
-    actually configured.
+    """Build one RSSSignalScraper per configured funding and job feed URL.
 
     Args:
         settings: Optional Settings override (useful in tests). If None,
@@ -103,14 +97,23 @@ async def build_scrapers(settings: Settings | None = None) -> list[ISignalScrape
     if settings is None:
         settings = get_settings()
 
-    return [
+    funding_scrapers = [
         RSSSignalScraper(
             url,
             settings.scraper.fetch_timeout_seconds,
             signal_type="funding_round",
         )
-        for url in settings.scraper.rss_feed_urls
+        for url in settings.scraper.funding_feed_urls
     ]
+    job_scrapers = [
+        RSSSignalScraper(
+            url,
+            settings.scraper.fetch_timeout_seconds,
+            signal_type="job_offer",
+        )
+        for url in settings.scraper.job_feed_urls
+    ]
+    return funding_scrapers + job_scrapers
 
 
 async def build_cv_generator(

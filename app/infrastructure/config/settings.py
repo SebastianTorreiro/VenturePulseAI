@@ -62,7 +62,10 @@ class LLMSettings(BaseModel):
 class ScraperSettings(BaseModel):
     model_config = _SUBMODEL_CONFIG
 
-    rss_feed_urls: list[HttpUrl] = ["https://techcrunch.com/category/venture/feed/"]
+    funding_feed_urls: list[HttpUrl] = [
+        "https://techcrunch.com/category/venture/feed/"
+    ]
+    job_feed_urls: list[HttpUrl] = []
     fetch_timeout_seconds: int = 30
 
 
