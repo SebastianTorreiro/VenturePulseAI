@@ -14,7 +14,7 @@ from pydantic import HttpUrl
 
 from app.domain.entities.signal import RawSignal
 from app.domain.exceptions import ScrapingError
-from app.domain.ports.signal_scraper import ISignalScraper
+from app.domain.ports.signal_scraper import ISignalScraper, SignalKind
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +24,25 @@ _TAG_RE = re.compile(r"<[^>]+>")
 class RSSSignalScraper(ISignalScraper):
     """Fetches raw signals from a single RSS feed.
 
-    No async factory: construction only stores the feed URL and timeout;
-    all I/O happens in fetch(). RawSignal carries no business invariants —
-    structural validation belongs to the application boundary (ADR-005).
+    No async factory: construction only stores the feed URL, timeout and
+    signal type; all I/O happens in fetch(). RawSignal carries no
+    business invariants — structural validation belongs to the
+    application boundary (ADR-005).
     """
 
-    def __init__(self, feed_url: HttpUrl, fetch_timeout_seconds: int) -> None:
+    def __init__(
+        self,
+        feed_url: HttpUrl,
+        fetch_timeout_seconds: int,
+        signal_type: SignalKind,
+    ) -> None:
         self._feed_url = feed_url
         self._timeout = fetch_timeout_seconds
+        self._signal_type = signal_type
+
+    @property
+    def signal_type(self) -> SignalKind:
+        return self._signal_type
 
     def source_name(self) -> str:
         host = urlsplit(str(self._feed_url)).hostname or ""

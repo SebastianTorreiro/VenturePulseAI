@@ -14,7 +14,7 @@ from app.domain.value_objects.money import Money
 if TYPE_CHECKING:
     # Deferred to break the import cycle: app.domain.ports.__init__ pulls in
     # cv_generator, which imports Signal from this module.
-    from app.domain.ports.llm_service import FundingEntities
+    from app.domain.ports.llm_service import FundingEntities, JobEntities
 
 # Signal strength normalizes the funding amount: $1B caps the score at 1.0.
 _STRENGTH_DENOMINATOR = 1_000_000_000
@@ -179,3 +179,54 @@ class JobOffer(Signal):
         self.required_skills = [
             skill.strip().lower() for skill in self.required_skills if skill.strip()
         ]
+
+    @classmethod
+    def from_extraction(
+        cls,
+        *,
+        id: SignalId,
+        source: str,
+        raw_content: str,
+        summary: str,
+        detected_at: datetime,
+        entities: "JobEntities",
+        seniority: Seniority,
+        url: str,
+    ) -> "JobOffer":
+        """Build a JobOffer from raw text and LLM-extracted entities.
+
+        Resolves company_name the same way FundingRound.from_extraction()
+        does: prefers entities.company_name, falls back to a regex over
+        raw_content when the LLM didn't find one. That regex only
+        matches funding verbs, so it rarely helps for job postings —
+        "Unknown" is the honest outcome most of the time until a
+        job-posting-specific fallback is worth writing.
+
+        seniority is a separate parameter rather than read from
+        `entities` directly, mirroring how from_extraction() takes
+        `series` explicitly for FundingRound: the caller resolves
+        missing/unclear values (e.g. defaulting to Seniority.UNKNOWN) before
+        calling this, so that policy lives in the application layer, not
+        here.
+
+        signal_strength is a constant 1.0: unlike FundingRound (an
+        anticipatory signal scored by funding amount), a JobOffer is
+        confirmatory — it already happened, so there's no magnitude to
+        normalize against.
+        """
+        return cls(
+            id=id,
+            source=source,
+            company_name=(
+                entities.company_name.strip()
+                if entities.company_name and entities.company_name.strip()
+                else _extract_company_name(raw_content)
+            ),
+            summary=summary,
+            detected_at=detected_at,
+            signal_strength=1.0,
+            title=entities.title or "",
+            required_skills=list(entities.required_skills),
+            seniority=seniority,
+            url=url,
+        )

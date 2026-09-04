@@ -8,40 +8,27 @@ from pathlib import Path
 from ollama import AsyncClient
 
 from app.domain.exceptions import LLMError
-from app.domain.ports.llm_service import FundingEntities, ILLMService
-from app.domain.value_objects.enums import FundingSeries
+from app.domain.ports.llm_service import FundingEntities, ILLMService, JobEntities
+from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.money import Money
 from app.infrastructure.config.settings import LLMSettings
+from app.infrastructure.llm.schemas import (
+    FundingExtractionSchema,
+    JobExtractionSchema,
+    render_fields_section,
+    to_ollama_schema,
+)
 
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "funding_extraction.txt"
+_JOB_PROMPT_PATH = Path(__file__).parent / "prompts" / "job_extraction.txt"
 
-# Strict JSON schema handed to Ollama's `format` for structured output.
-# This is data shape, not a prompt, so it stays in code; the prompt text
-# lives in prompts/funding_extraction.txt.
-_FUNDING_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "company_name": {"type": ["string", "null"]},
-        "amount_usd": {"type": "number", "minimum": 0},
-        "currency": {"type": ["string", "null"]},
-        "series": {
-            "type": ["string", "null"],
-            "enum": ["SEED", "A", "B", "C", "GROWTH", None],
-        },
-        "investors": {"type": "array", "items": {"type": "string"}},
-        "investment_thesis": {"type": ["string", "null"]},
-    },
-    "required": [
-        "company_name",
-        "amount_usd",
-        "currency",
-        "series",
-        "investors",
-        "investment_thesis",
-    ],
-}
+# JSON schemas handed to Ollama's `format` for structured output, derived
+# from the Pydantic models in schemas.py — single source of truth shared
+# with each prompt's "Fields:" section (see render_fields_section below).
+_FUNDING_SCHEMA = to_ollama_schema(FundingExtractionSchema)
+_JOB_SCHEMA = to_ollama_schema(JobExtractionSchema)
 
 
 class OllamaLLMService(ILLMService):
@@ -57,7 +44,12 @@ class OllamaLLMService(ILLMService):
         self._num_ctx = settings.num_ctx
         # HttpUrl renders a trailing slash; the client wants a bare host.
         self._client = AsyncClient(host=str(settings.ollama_host).rstrip("/"))
-        self._funding_prompt_template = _PROMPT_PATH.read_text(encoding="utf-8")
+        self._funding_prompt_template = _PROMPT_PATH.read_text(
+            encoding="utf-8"
+        ).replace("{fields_section}", render_fields_section(FundingExtractionSchema))
+        self._job_prompt_template = _JOB_PROMPT_PATH.read_text(
+            encoding="utf-8"
+        ).replace("{fields_section}", render_fields_section(JobExtractionSchema))
 
     @classmethod
     async def create(cls, settings: LLMSettings) -> "OllamaLLMService":
@@ -118,6 +110,21 @@ class OllamaLLMService(ILLMService):
             raise LLMError("Ollama funding extraction failed") from e
         return _to_funding_entities(data)
 
+    async def extract_job_entities(self, raw_text: str) -> JobEntities:
+        prompt = self._job_prompt_template.format(raw_text=raw_text)
+        try:
+            response = await self._client.chat(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
+                format=_JOB_SCHEMA,
+                stream=False,
+                options={"temperature": 0, "num_ctx": self._num_ctx},
+            )
+            data = json.loads(response.message.content)
+        except Exception as e:
+            raise LLMError("Ollama job extraction failed") from e
+        return _to_job_entities(data)
+
 
 def _to_funding_entities(data: dict) -> FundingEntities:
     return FundingEntities(
@@ -126,6 +133,15 @@ def _to_funding_entities(data: dict) -> FundingEntities:
         investors=tuple(data.get("investors") or ()),
         investment_thesis=data.get("investment_thesis"),
         company_name=_parse_company_name(data.get("company_name")),
+    )
+
+
+def _to_job_entities(data: dict) -> JobEntities:
+    return JobEntities(
+        company_name=_parse_company_name(data.get("company_name")),
+        title=_parse_title(data.get("title")),
+        required_skills=tuple(data.get("required_skills") or ()),
+        seniority=_parse_seniority(data.get("seniority")),
     )
 
 
@@ -152,4 +168,16 @@ def _parse_series(series: object) -> FundingSeries | None:
 def _parse_company_name(company_name: object) -> str | None:
     if isinstance(company_name, str) and company_name.strip():
         return company_name.strip()
+    return None
+
+
+def _parse_title(title: object) -> str | None:
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    return None
+
+
+def _parse_seniority(seniority: object) -> Seniority | None:
+    if isinstance(seniority, str) and seniority.upper() in Seniority.__members__:
+        return Seniority[seniority.upper()]
     return None

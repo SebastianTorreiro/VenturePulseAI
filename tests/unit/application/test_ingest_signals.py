@@ -2,31 +2,36 @@
 
 import asyncio
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from app.application.ingest_signals import IngestSignalsUseCase
-from app.domain.entities.signal import FundingRound, RawSignal, Signal
+from app.domain.entities.signal import FundingRound, JobOffer, RawSignal, Signal
 from app.domain.exceptions import LLMError, RepositoryError
 from app.domain.ports.embedding_service import IEmbeddingService
-from app.domain.ports.llm_service import FundingEntities, ILLMService
+from app.domain.ports.llm_service import FundingEntities, ILLMService, JobEntities
 from app.domain.ports.signal_repository import (
     ISignalRepository,
     ScoredSignal,
     SignalFilter,
 )
-from app.domain.ports.signal_scraper import ISignalScraper
+from app.domain.ports.signal_scraper import ISignalScraper, SignalKind
 from app.domain.value_objects.embedding import Embedding
-from app.domain.value_objects.enums import FundingSeries
+from app.domain.value_objects.enums import Seniority
 from app.domain.value_objects.identifiers import SignalId
-from app.domain.value_objects.money import Money
-
+from tests.fixtures.factories import make_funding_entities, make_job_entities
 
 # --- fakes ------------------------------------------------------------
 
 
 class FakeScraper(ISignalScraper):
-    def __init__(self, raws: list[RawSignal]) -> None:
+    def __init__(
+        self, raws: list[RawSignal], signal_type: SignalKind = "funding_round"
+    ) -> None:
         self._raws = list(raws)
+        self._signal_type = signal_type
+
+    @property
+    def signal_type(self) -> SignalKind:
+        return self._signal_type
 
     def source_name(self) -> str:
         return "fake-rss"
@@ -44,6 +49,12 @@ class FakeLLM(ILLMService):
         self._i = 0
 
     async def extract_funding_entities(self, raw_text: str) -> FundingEntities:
+        return self._next_result()
+
+    async def extract_job_entities(self, raw_text: str) -> JobEntities:
+        return self._next_result()
+
+    def _next_result(self):
         result = self._results[min(self._i, len(self._results) - 1)]
         self._i += 1
         if isinstance(result, Exception):
@@ -106,24 +117,6 @@ def _raw(content: str = "Acme Corp raised $10M in Series A.") -> RawSignal:
     )
 
 
-def _entities(
-    amount: str | None = "10000000",
-    series: FundingSeries | None = FundingSeries.A,
-    investors: tuple[str, ...] = ("Sequoia Capital",),
-    thesis: str | None = "fintech payments",
-) -> FundingEntities:
-    return FundingEntities(
-        amount=(
-            Money(amount=Decimal(amount), currency="USD")
-            if amount is not None
-            else None
-        ),
-        series=series,
-        investors=investors,
-        investment_thesis=thesis,
-    )
-
-
 def _use_case(scraper, llm, embedder=None, repo=None) -> IngestSignalsUseCase:
     return IngestSignalsUseCase(
         [scraper], llm, embedder or FakeEmbedder(), repo or FakeRepo()
@@ -141,7 +134,7 @@ def test_execute_ingests_valid_signals():
     scraper = FakeScraper(
         [_raw(), _raw(content="Beta Inc raised $5M in Series A.")]
     )
-    llm = FakeLLM([_entities(), _entities(amount="5000000")])
+    llm = FakeLLM([make_funding_entities(), make_funding_entities(amount="5000000")])
 
     result = asyncio.run(
         _use_case(scraper, llm, repo=repo).execute(_SINCE)
@@ -155,7 +148,7 @@ def test_execute_ingests_valid_signals():
 
 def test_execute_skips_signals_without_amount():
     scraper = FakeScraper([_raw()])
-    llm = FakeLLM([_entities(amount=None)])
+    llm = FakeLLM([make_funding_entities(amount=None)])
 
     result = asyncio.run(_use_case(scraper, llm).execute(_SINCE))
 
@@ -167,7 +160,7 @@ def test_execute_skips_duplicate_signals():
     repo = FakeRepo()
     # Two signals with identical content produce the same content_hash.
     scraper = FakeScraper([_raw(), _raw()])
-    llm = FakeLLM([_entities(), _entities()])
+    llm = FakeLLM([make_funding_entities(), make_funding_entities()])
 
     result = asyncio.run(
         _use_case(scraper, llm, repo=repo).execute(_SINCE)
@@ -181,7 +174,7 @@ def test_execute_skips_duplicate_signals():
 def test_execute_counts_errors_without_raising():
     scraper = FakeScraper([_raw(), _raw(content="Beta Inc raised $5M.")])
     # First extraction raises; the loop must continue, not abort.
-    llm = FakeLLM([LLMError("boom"), _entities(amount="5000000")])
+    llm = FakeLLM([LLMError("boom"), make_funding_entities(amount="5000000")])
 
     result = asyncio.run(_use_case(scraper, llm).execute(_SINCE))
 
@@ -200,11 +193,11 @@ def test_execute_returns_correct_counts():
     ]
     llm = FakeLLM(
         [
-            _entities(amount="10000000"),
-            _entities(amount="10000000"),
-            _entities(amount=None),
+            make_funding_entities(amount="10000000"),
+            make_funding_entities(amount="10000000"),
+            make_funding_entities(amount=None),
             LLMError("boom"),
-            _entities(amount="5000000"),
+            make_funding_entities(amount="5000000"),
         ]
     )
 
@@ -228,9 +221,9 @@ def test_execute_aggregates_results_across_multiple_scrapers():
     )
     llm = FakeLLM(
         [
-            _entities(amount="10000000"),
-            _entities(amount="5000000"),
-            _entities(amount=None),
+            make_funding_entities(amount="10000000"),
+            make_funding_entities(amount="5000000"),
+            make_funding_entities(amount=None),
         ]
     )
 
@@ -241,3 +234,49 @@ def test_execute_aggregates_results_across_multiple_scrapers():
     assert result.ingested == 2
     assert result.skipped_no_entities == 1
     assert len(repo.saved) == 2
+
+
+def test_execute_ingests_job_offer_via_dispatch():
+    repo = FakeRepo()
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring a Senior Backend Engineer.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities()])
+
+    result = asyncio.run(_use_case(scraper, llm, repo=repo).execute(_SINCE))
+
+    assert result.ingested == 1
+    assert result.scraped == 1
+    assert len(repo.saved) == 1
+    signal, _ = repo.saved[0]
+    assert isinstance(signal, JobOffer)
+    assert signal.title == "Senior Backend Engineer"
+    assert signal.required_skills == ["python", "fastapi"]
+
+
+def test_execute_skips_job_offer_without_title():
+    scraper = FakeScraper(
+        [_raw(content="Some generic announcement, not a job posting.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities(title=None)])
+
+    result = asyncio.run(_use_case(scraper, llm).execute(_SINCE))
+
+    assert result.skipped_no_entities == 1
+    assert result.ingested == 0
+
+
+def test_execute_defaults_unresolved_seniority_to_unknown():
+    repo = FakeRepo()
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring, level not specified.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities(seniority=None)])
+
+    asyncio.run(_use_case(scraper, llm, repo=repo).execute(_SINCE))
+
+    signal, _ = repo.saved[0]
+    assert signal.seniority == Seniority.UNKNOWN

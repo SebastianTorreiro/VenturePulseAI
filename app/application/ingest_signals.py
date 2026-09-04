@@ -10,13 +10,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.domain.entities.signal import FundingRound
+from app.domain.entities.signal import FundingRound, JobOffer, RawSignal, Signal
 from app.domain.exceptions import EmbeddingError, LLMError, RepositoryError
 from app.domain.ports.embedding_service import IEmbeddingService
 from app.domain.ports.llm_service import ILLMService
 from app.domain.ports.signal_repository import ISignalRepository
-from app.domain.ports.signal_scraper import ISignalScraper
-from app.domain.value_objects.enums import FundingSeries
+from app.domain.ports.signal_scraper import ISignalScraper, SignalKind
+from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.identifiers import new_signal_id
 
 logger = logging.getLogger(__name__)
@@ -72,36 +72,15 @@ class IngestSignalsUseCase:
         async for raw in scraper.fetch(since):
             scraped += 1
             try:
-                entities = await self._llm.extract_funding_entities(raw.content)
-
-                # Quality filter: drop signals lacking a source or amount.
-                if not raw.source or not entities.amount:
+                signal = await self._build_signal(scraper.signal_type, raw)
+                if signal is None:
                     logger.info(
-                        "skipped (no source/amount) from %s: %s",
+                        "skipped (missing required fields) from %s: %s",
                         raw.source,
                         raw.content[:80],
                     )
                     skipped_no_entities += 1
                     continue
-
-                # Default an unknown series rather than dropping the
-                # signal: keeps more data in the system (and a valid
-                # FundingSeries avoids a None reaching the persistence
-                # codec).
-                series = entities.series
-                if series is None:
-                    logger.debug("series unknown, defaulting to SEED")
-                    series = FundingSeries.SEED
-
-                signal = FundingRound.from_extraction(
-                    id=new_signal_id(),
-                    source=raw.source,
-                    raw_content=raw.content,
-                    summary=raw.content[:_MAX_SUMMARY],
-                    detected_at=raw.fetched_at,
-                    entities=entities,
-                    series=series,
-                )
 
                 if await self._repo.exists(signal.content_hash):
                     skipped_duplicate += 1
@@ -133,3 +112,55 @@ class IngestSignalsUseCase:
             skipped_no_entities=skipped_no_entities,
             errors=errors,
         )
+
+    async def _build_signal(
+        self, signal_type: SignalKind, raw: RawSignal
+    ) -> Signal | None:
+        """Extract entities and build the right Signal for this source.
+
+        Dispatches on signal_type rather than inspecting `raw` itself:
+        one scraper produces exactly one signal kind (ADR / signal_scraper
+        port), so the raw text's content never needs sniffing.
+        """
+        if signal_type == "funding_round":
+            entities = await self._llm.extract_funding_entities(raw.content)
+            if not raw.source or not entities.amount:
+                return None
+
+            series = entities.series
+            if series is None:
+                logger.debug("series unknown, defaulting to SEED")
+                series = FundingSeries.SEED
+
+            return FundingRound.from_extraction(
+                id=new_signal_id(),
+                source=raw.source,
+                raw_content=raw.content,
+                summary=raw.content[:_MAX_SUMMARY],
+                detected_at=raw.fetched_at,
+                entities=entities,
+                series=series,
+            )
+
+        if signal_type == "job_offer":
+            entities = await self._llm.extract_job_entities(raw.content)
+            if not raw.source or not entities.title:
+                return None
+
+            seniority = entities.seniority
+            if seniority is None:
+                logger.info("seniority unknown, defaulting to UNKNOWN")
+                seniority = Seniority.UNKNOWN
+
+            return JobOffer.from_extraction(
+                id=new_signal_id(),
+                source=raw.source,
+                raw_content=raw.content,
+                summary=raw.content[:_MAX_SUMMARY],
+                detected_at=raw.fetched_at,
+                entities=entities,
+                seniority=seniority,
+                url=raw.url,
+            )
+
+        raise AssertionError(f"unhandled signal_type: {signal_type!r}")

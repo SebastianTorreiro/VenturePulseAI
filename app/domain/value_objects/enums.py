@@ -20,3 +20,4 @@ class Seniority(StrEnum):
     MID = "mid"
     SENIOR = "senior"
     STAFF = "staff"
+    UNKNOWN = "unknown"

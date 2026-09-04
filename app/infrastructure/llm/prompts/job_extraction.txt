@@ -1,0 +1,8 @@
+You are a precise extraction engine. Given the text below from a job posting or hiring announcement, extract the following fields. Use null when unknown. Do not invent.
+
+{fields_section}
+
+TEXT:
+{raw_text}
+
+Respond with valid JSON only. No explanation, no markdown.
