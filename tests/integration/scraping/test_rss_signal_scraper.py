@@ -23,7 +23,7 @@ from app.infrastructure.scraping.rss_signal_scraper import RSSSignalScraper
 def test_source_name_returns_expected_slug():
     settings = ScraperSettings()
     scraper = RSSSignalScraper(
-        settings.rss_feed_urls[0],
+        settings.funding_feed_urls[0],
         settings.fetch_timeout_seconds,
         signal_type="funding_round",
     )
@@ -36,7 +36,7 @@ def test_fetch_returns_at_least_one_raw_signal():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0],
+            settings.funding_feed_urls[0],
             settings.fetch_timeout_seconds,
             signal_type="funding_round",
         )
@@ -55,7 +55,7 @@ def test_fetch_filters_signals_older_than_since():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0],
+            settings.funding_feed_urls[0],
             settings.fetch_timeout_seconds,
             signal_type="funding_round",
         )
@@ -76,7 +76,7 @@ def test_fetch_returns_signals_with_required_fields():
     async def scenario():
         settings = ScraperSettings()
         scraper = RSSSignalScraper(
-            settings.rss_feed_urls[0],
+            settings.funding_feed_urls[0],
             settings.fetch_timeout_seconds,
             signal_type="funding_round",
         )
