@@ -22,7 +22,8 @@ import yaml
 
 from app.application.generate_cv import GenerateCVUseCase
 from app.application.ingest_signals import IngestResult, IngestSignalsUseCase
-from app.application.search_signals import SearchSignalsUseCase
+from app.application.match_profile import MatchProfileUseCase
+from app.application.search_signals import SearchResult, SearchSignalsUseCase
 from app.domain.entities.developer_profile import (
     DeveloperProfile,
     Experience,
@@ -101,22 +102,37 @@ def search(
         )
 
     result = asyncio.run(_run())
-    if not result.signals:
-        typer.echo("No signals found.")
-        raise typer.Exit(0)
+    _display_search_result(result)
 
-    typer.echo(f"Found {result.total} signal(s) for '{result.query}':\n")
-    for i, scored in enumerate(result.signals, 1):
-        s = scored.signal
-        amount_str = (
-            f"${s.amount.amount / 1_000_000:.1f}M {s.amount.currency}"
-            if hasattr(s, "amount") and s.amount
-            else "amount unknown"
+
+@app.command()
+def match(
+    profile_path: Path = typer.Option(
+        Path("profile/developer_profile.yaml"),
+        help="Path to developer profile YAML",
+    ),
+    limit: int = typer.Option(10, help="Max results"),
+):
+    """Match a developer profile against stored job offers."""
+    if not profile_path.exists():
+        typer.echo(f"Error: profile not found at {profile_path}", err=True)
+        typer.echo(
+            "Copy profile/developer_profile.example.yaml to "
+            "profile/developer_profile.yaml and fill in your data.",
+            err=True,
         )
-        typer.echo(f"  {i}. [{s.id}] {s.company_name}")
-        typer.echo(f"     Score: {scored.semantic_score:.2f} | {amount_str}")
-        typer.echo(f"     {s.summary[:100]}...")
-        typer.echo("")
+        raise typer.Exit(1)
+
+    profile = _load_profile(profile_path)
+
+    async def _run():
+        embedder = await build_embedder()
+        repository = await build_repository(embedder=embedder)
+        use_case = MatchProfileUseCase(embedder, repository)
+        return await use_case.execute(profile, limit=limit)
+
+    result = asyncio.run(_run())
+    _display_search_result(result)
 
 
 @app.command()
@@ -178,6 +194,25 @@ def apply(
         lines.append(f"## {section.title}\n\n{section.content}\n")
     output.write_text("\n".join(lines), encoding="utf-8")
     typer.echo(f"✓ CV written to {output}")
+
+
+def _display_search_result(result: SearchResult) -> None:
+    if not result.signals:
+        typer.echo("No signals found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Found {result.total} signal(s) for '{result.query}':\n")
+    for i, scored in enumerate(result.signals, 1):
+        s = scored.signal
+        amount_str = (
+            f"${s.amount.amount / 1_000_000:.1f}M {s.amount.currency}"
+            if hasattr(s, "amount") and s.amount
+            else "amount unknown"
+        )
+        typer.echo(f"  {i}. [{s.id}] {s.company_name}")
+        typer.echo(f"     Score: {scored.semantic_score:.2f} | {amount_str}")
+        typer.echo(f"     {s.summary[:100]}...")
+        typer.echo("")
 
 
 def _append_history(result: IngestResult, elapsed: float) -> None:
