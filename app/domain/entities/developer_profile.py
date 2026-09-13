@@ -55,6 +55,32 @@ class DeveloperProfile:
                 "DeveloperProfile.full_name must not be empty"
             )
 
+    @property
+    def embedding_text(self) -> str:
+        """Text handed to IEmbeddingService.embed() for job-offer matching.
+
+        Prioritizes headline and technical skills/technologies — the facts
+        that actually distinguish one profile from another for semantic
+        matching — over contact info or free-text narrative (mirrors
+        Signal.embedding_text's rationale in app/domain/entities/signal.py).
+        Deduplicated case-insensitively, first-seen casing kept.
+        """
+        candidates = (
+            *(skill.name for skill in self.skills),
+            *(skill for exp in self.experiences for skill in exp.skills_used),
+            *(tech for project in self.projects for tech in project.technologies),
+        )
+
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for name in candidates:
+            key = name.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped.append(name.strip())
+
+        return f"{self.headline} {', '.join(deduped)}"
+
     def corpus(self) -> str:
         """Normalized text of every fact in the profile.
 
