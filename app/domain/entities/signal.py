@@ -181,6 +181,11 @@ class JobOffer(Signal):
     seniority: Seniority
     url: str
     salary_range: Money | None = None  # most offers do not publish it
+    # Both set together by IngestSignalsUseCase when a recent FundingRound
+    # from the same company is found; detected_at is copied alongside the
+    # id so callers can show "N days ago" without an extra repository fetch.
+    related_funding_signal_id: SignalId | None = None
+    related_funding_detected_at: datetime | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()

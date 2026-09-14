@@ -1,6 +1,7 @@
 """ISignalRepository backed by Qdrant (local or Cloud, same adapter)."""
 
 import logging
+from datetime import datetime
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -11,7 +12,7 @@ from app.domain.ports.signal_repository import (
     ScoredSignal,
     SignalFilter,
 )
-from app.domain.entities.signal import Signal
+from app.domain.entities.signal import FundingRound, Signal
 from app.domain.value_objects.embedding import Embedding
 from app.domain.value_objects.identifiers import SignalId
 from app.infrastructure.config.settings import QdrantSettings
@@ -177,6 +178,29 @@ class QdrantSignalRepository(ISignalRepository):
             )
 
         return payload_to_signal(results[0].payload)
+
+    async def find_funding_rounds_since(self, since: datetime) -> list[FundingRound]:
+        condition = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="type", match=models.MatchValue(value="funding_round")
+                ),
+                models.FieldCondition(
+                    key="detected_at", range=models.DatetimeRange(gt=since)
+                ),
+            ]
+        )
+        try:
+            points, _ = await self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=condition,
+                limit=1000,  # MVP cap; pagination deferred until volume needs it
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            raise RepositoryError("Failed to list recent funding rounds") from e
+        return [payload_to_signal(p.payload) for p in points]
 
     @staticmethod
     def _build_filter(filters: SignalFilter) -> models.Filter | None:

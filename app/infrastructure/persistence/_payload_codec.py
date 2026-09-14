@@ -61,6 +61,15 @@ def signal_to_payload(signal: Signal) -> dict:
         if signal.salary_range is not None:
             payload["salary_amount_usd"] = float(_amount_in_usd(signal.salary_range))
             payload["salary_currency"] = "USD"
+        if signal.related_funding_signal_id is not None:
+            payload["related_funding_signal_id"] = str(
+                signal.related_funding_signal_id
+            )
+            payload["related_funding_detected_at"] = (
+                signal.related_funding_detected_at.isoformat()
+                if signal.related_funding_detected_at is not None
+                else None
+            )
         return payload
 
     raise RepositoryError(
@@ -99,6 +108,8 @@ def payload_to_signal(payload: dict) -> Signal:
                 amount=Decimal(str(payload["salary_amount_usd"])),
                 currency=payload["salary_currency"],
             )
+        related_id = payload.get("related_funding_signal_id")
+        related_detected_at = payload.get("related_funding_detected_at")
         return JobOffer(
             **common,
             title=payload["title"],
@@ -106,6 +117,14 @@ def payload_to_signal(payload: dict) -> Signal:
             seniority=Seniority(payload["seniority"]),
             url=payload["url"],
             salary_range=salary_range,
+            related_funding_signal_id=(
+                SignalId(UUID(related_id)) if related_id else None
+            ),
+            related_funding_detected_at=(
+                datetime.fromisoformat(related_detected_at)
+                if related_detected_at
+                else None
+            ),
         )
 
     raise RepositoryError(f"Unknown signal type in payload: {signal_type!r}")

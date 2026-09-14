@@ -211,6 +211,10 @@ def _display_search_result(result: SearchResult) -> None:
         )
         typer.echo(f"  {i}. [{s.id}] {s.company_name}")
         typer.echo(f"     Score: {scored.semantic_score:.2f} | {amount_str}")
+        related_at = getattr(s, "related_funding_detected_at", None)
+        if related_at is not None:
+            days_ago = (datetime.now(timezone.utc) - related_at).days
+            typer.echo(f"     ⚡ {s.company_name} raised funding {days_ago}d ago")
         typer.echo(f"     {s.summary[:100]}...")
         typer.echo("")
 
