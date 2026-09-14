@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from app.domain.entities.signal import Signal
+from app.domain.entities.signal import FundingRound, Signal
 from app.domain.value_objects.embedding import Embedding
 from app.domain.value_objects.enums import FundingSeries, Seniority
 from app.domain.value_objects.identifiers import SignalId
@@ -85,5 +85,18 @@ class ISignalRepository(ABC):
 
         Raises:
             RepositoryError: if the signal is not found or if I/O fails.
+        """
+        ...
+
+    @abstractmethod
+    async def find_funding_rounds_since(self, since: datetime) -> list[FundingRound]:
+        """List every FundingRound detected at or after `since`.
+
+        Plain filtered listing — no vector search involved. Used to find
+        correlation candidates when ingesting a JobOffer (a company that
+        raised recently and is now hiring).
+
+        Raises:
+            RepositoryError: the vector store failed during the query.
         """
         ...

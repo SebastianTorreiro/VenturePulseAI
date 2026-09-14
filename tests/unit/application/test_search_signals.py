@@ -66,6 +66,9 @@ class FakeSearchRepo(ISignalRepository):
     async def get_by_id(self, signal_id: SignalId) -> Signal:  # pragma: no cover
         raise NotImplementedError
 
+    async def find_funding_rounds_since(self, since):  # pragma: no cover
+        raise NotImplementedError
+
 
 def _scored(company: str, amount: str, score: float = 0.9) -> ScoredSignal:
     signal = FundingRound(

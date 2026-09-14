@@ -47,6 +47,9 @@ class FakeRepo(ISignalRepository):
             raise RepositoryError(f"Signal {signal_id} not found")
         return self._signal
 
+    async def find_funding_rounds_since(self, since):  # pragma: no cover
+        raise NotImplementedError
+
 
 class FakeCVGenerator(ICVGenerator):
     def __init__(self, cv: CV | None = None, error: Exception | None = None) -> None:

@@ -6,9 +6,10 @@ adapters are wired in the composition root and injected as ports.
 
 import asyncio
 import logging
+import re
 import time
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 
 from app.domain.entities.signal import FundingRound, JobOffer, RawSignal, Signal
 from app.domain.exceptions import EmbeddingError, LLMError, RepositoryError
@@ -22,6 +23,23 @@ from app.domain.value_objects.identifiers import new_signal_id
 logger = logging.getLogger(__name__)
 
 _MAX_SUMMARY = 500
+_FUNDING_CORRELATION_WINDOW_DAYS = 60
+_COMPANY_SUFFIX_RE = re.compile(
+    r"\b(inc|incorporated|corp|corporation|ltd|limited|llc|co|company)\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_company_name(name: str) -> str:
+    """Canonicalize a company name for cross-source correlation matching.
+
+    Lowercases and strips a trailing common corporate suffix (Inc.,
+    Corp., Ltd., LLC, Co.) so "Acme Inc." and "Acme" from different
+    sources/extractions are recognized as the same company. Comparison
+    only — never used for display.
+    """
+    normalized = _COMPANY_SUFFIX_RE.sub("", name.strip().lower()).strip()
+    return normalized.rstrip(".,").strip()
 
 
 @dataclass(frozen=True)
@@ -150,7 +168,7 @@ class IngestSignalsUseCase:
                 logger.info("seniority unknown, defaulting to UNKNOWN")
                 seniority = Seniority.UNKNOWN
 
-            return JobOffer.from_extraction(
+            signal = JobOffer.from_extraction(
                 id=new_signal_id(),
                 source=raw.source,
                 raw_content=raw.content,
@@ -161,4 +179,37 @@ class IngestSignalsUseCase:
                 url=raw.url,
             )
 
+            related = await self._find_related_funding_round(signal.company_name)
+            if related is not None:
+                signal = replace(
+                    signal,
+                    related_funding_signal_id=related.id,
+                    related_funding_detected_at=related.detected_at,
+                )
+
+            return signal
+
         raise AssertionError(f"unhandled signal_type: {signal_type!r}")
+
+    async def _find_related_funding_round(
+        self, company_name: str
+    ) -> FundingRound | None:
+        """Find the most recent FundingRound from the same company.
+
+        Surfaces the correlation the domain model already anticipates
+        (FundingRound docstring: "precedes job openings by 2-4 weeks").
+        Window is 60 days — double the upper end of that estimate, as
+        margin. Company names are compared normalized (see
+        _normalize_company_name), not via a Qdrant filter, since
+        extraction produces inconsistent casing/punctuation across
+        sources.
+        """
+        since = datetime.now(timezone.utc) - timedelta(
+            days=_FUNDING_CORRELATION_WINDOW_DAYS
+        )
+        candidates = await self._repo.find_funding_rounds_since(since)
+        target = _normalize_company_name(company_name)
+        matches = [
+            c for c in candidates if _normalize_company_name(c.company_name) == target
+        ]
+        return max(matches, key=lambda c: c.detected_at) if matches else None

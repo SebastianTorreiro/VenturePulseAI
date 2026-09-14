@@ -13,7 +13,7 @@ pytest-asyncio plugin needed.
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
@@ -66,6 +66,8 @@ def _make_job_offer(
     company: str = "Acme AI",
     summary: str = "Senior ML engineer role at Acme AI platform team.",
     title: str = "Senior ML Engineer",
+    related_funding_signal_id=None,
+    related_funding_detected_at=None,
 ) -> JobOffer:
     return JobOffer(
         id=new_signal_id(),
@@ -78,6 +80,8 @@ def _make_job_offer(
         required_skills=["python", "qdrant"],
         seniority=Seniority.SENIOR,
         url="https://example.com/job/1",
+        related_funding_signal_id=related_funding_signal_id,
+        related_funding_detected_at=related_funding_detected_at,
     )
 
 
@@ -372,5 +376,56 @@ def test_get_by_id_raises_repository_error_when_not_found(
         async with _repository(qdrant_settings, embedding_service) as repo:
             with pytest.raises(RepositoryError):
                 await repo.get_by_id(new_signal_id())
+
+    asyncio.run(scenario())
+
+
+def test_related_funding_fields_survive_save_and_retrieve(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            funding_id = new_signal_id()
+            funding_detected_at = datetime.now(timezone.utc)
+            signal = _make_job_offer(
+                related_funding_signal_id=funding_id,
+                related_funding_detected_at=funding_detected_at,
+            )
+            embedding = await embedding_service.embed(signal.summary)
+            await repo.save(signal, embedding)
+
+            retrieved = await repo.get_by_id(signal.id)
+
+            assert isinstance(retrieved, JobOffer)
+            assert retrieved.related_funding_signal_id == funding_id
+            assert retrieved.related_funding_detected_at == funding_detected_at
+
+    asyncio.run(scenario())
+
+
+def test_find_funding_rounds_since_filters_by_type_and_date(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            recent_funding = _make_funding_round(company="RecentCo")
+            stale_funding = _make_funding_round(company="StaleCo")
+            stale_funding.detected_at = datetime.now(timezone.utc) - timedelta(
+                days=100
+            )
+            job_offer = _make_job_offer(company="NotFundingCo")
+
+            for signal in (recent_funding, stale_funding, job_offer):
+                embedding = await embedding_service.embed(signal.summary)
+                await repo.save(signal, embedding)
+
+            since = datetime.now(timezone.utc) - timedelta(days=60)
+            results = await repo.find_funding_rounds_since(since)
+
+            assert all(isinstance(r, FundingRound) for r in results)
+            names = {r.company_name for r in results}
+            assert "RecentCo" in names
+            assert "StaleCo" not in names
+            assert "NotFundingCo" not in names
 
     asyncio.run(scenario())

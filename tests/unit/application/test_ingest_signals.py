@@ -1,7 +1,8 @@
 """Unit tests for IngestSignalsUseCase — fakes for every port, no I/O."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from app.application.ingest_signals import IngestSignalsUseCase
 from app.domain.entities.signal import FundingRound, JobOffer, RawSignal, Signal
@@ -15,8 +16,9 @@ from app.domain.ports.signal_repository import (
 )
 from app.domain.ports.signal_scraper import ISignalScraper, SignalKind
 from app.domain.value_objects.embedding import Embedding
-from app.domain.value_objects.enums import Seniority
-from app.domain.value_objects.identifiers import SignalId
+from app.domain.value_objects.enums import FundingSeries, Seniority
+from app.domain.value_objects.identifiers import SignalId, new_signal_id
+from app.domain.value_objects.money import Money
 from tests.fixtures.factories import make_funding_entities, make_job_entities
 
 # --- fakes ------------------------------------------------------------
@@ -108,6 +110,13 @@ class FakeRepo(ISignalRepository):
                 return signal
         raise RepositoryError(f"Signal {signal_id} not found")
 
+    async def find_funding_rounds_since(self, since) -> list[FundingRound]:
+        return [
+            signal
+            for signal, _ in self.saved
+            if isinstance(signal, FundingRound) and signal.detected_at > since
+        ]
+
 
 # --- builders ---------------------------------------------------------
 
@@ -118,6 +127,22 @@ def _raw(content: str = "Acme Corp raised $10M in Series A.") -> RawSignal:
         url="https://example.com/a",
         content=content,
         fetched_at=datetime.now(timezone.utc),
+    )
+
+
+def _funding_round(
+    company_name: str = "Acme Corp",
+    detected_at: datetime | None = None,
+) -> FundingRound:
+    return FundingRound(
+        id=new_signal_id(),
+        source="techcrunch-rss",
+        company_name=company_name,
+        summary=f"{company_name} raised funding.",
+        detected_at=detected_at or datetime.now(timezone.utc),
+        signal_strength=0.5,
+        amount=Money(amount=Decimal("10000000"), currency="USD"),
+        series=FundingSeries.A,
     )
 
 
@@ -304,3 +329,71 @@ def test_execute_defaults_unresolved_seniority_to_unknown():
 
     signal, _ = repo.saved[0]
     assert signal.seniority == Seniority.UNKNOWN
+
+
+def test_execute_links_job_offer_to_recent_funding_round_same_company():
+    repo = FakeRepo()
+    funding_signal = _funding_round(
+        company_name="Acme Corp.",  # note the suffix — must still match "Acme Corp"
+        detected_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
+    repo.saved.append((funding_signal, Embedding(vector=(0.1, 0.2, 0.3), model_id="fake")))
+
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring a Senior Backend Engineer.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities(company_name="Acme Corp")])
+
+    asyncio.run(_use_case(scraper, llm, repo=repo).execute(_SINCE))
+
+    job_signal, _ = repo.saved[-1]
+    assert job_signal.related_funding_signal_id == funding_signal.id
+    assert job_signal.related_funding_detected_at == funding_signal.detected_at
+
+
+def test_execute_does_not_link_funding_round_outside_the_correlation_window():
+    repo = FakeRepo()
+    stale_funding = _funding_round(
+        company_name="Acme Corp",
+        detected_at=datetime.now(timezone.utc) - timedelta(days=61),
+    )
+    repo.saved.append((stale_funding, Embedding(vector=(0.1, 0.2, 0.3), model_id="fake")))
+
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring a Senior Backend Engineer.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities(company_name="Acme Corp")])
+
+    asyncio.run(_use_case(scraper, llm, repo=repo).execute(_SINCE))
+
+    job_signal, _ = repo.saved[-1]
+    assert job_signal.related_funding_signal_id is None
+    assert job_signal.related_funding_detected_at is None
+
+
+def test_execute_links_to_most_recent_funding_round_when_multiple_match():
+    repo = FakeRepo()
+    older = _funding_round(
+        company_name="Acme Corp",
+        detected_at=datetime.now(timezone.utc) - timedelta(days=30),
+    )
+    newer = _funding_round(
+        company_name="Acme Corp",
+        detected_at=datetime.now(timezone.utc) - timedelta(days=5),
+    )
+    fake_embedding = Embedding(vector=(0.1, 0.2, 0.3), model_id="fake")
+    repo.saved.append((older, fake_embedding))
+    repo.saved.append((newer, fake_embedding))
+
+    scraper = FakeScraper(
+        [_raw(content="Acme Corp is hiring a Senior Backend Engineer.")],
+        signal_type="job_offer",
+    )
+    llm = FakeLLM([make_job_entities(company_name="Acme Corp")])
+
+    asyncio.run(_use_case(scraper, llm, repo=repo).execute(_SINCE))
+
+    job_signal, _ = repo.saved[-1]
+    assert job_signal.related_funding_signal_id == newer.id
