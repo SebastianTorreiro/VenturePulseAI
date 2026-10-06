@@ -42,6 +42,7 @@ from app.infrastructure.config.container import (
 
 app = typer.Typer(help="VenturePulseAI — job-market signal intelligence.")
 
+_MATCH_STATE_PATH = Path("data/match_last_run.txt")
 _HISTORY_PATH = Path("data/collect_history.csv")
 _HISTORY_HEADER = [
     "timestamp",
@@ -112,8 +113,13 @@ def match(
         help="Path to developer profile YAML",
     ),
     limit: int = typer.Option(10, help="Max results"),
+    show_all: bool = typer.Option(
+        False,
+        "--all",
+        help="Ignore the last-run timestamp and consider every stored offer",
+    ),
 ):
-    """Match a developer profile against stored job offers."""
+    """Match a developer profile against job offers detected since the last run."""
     if not profile_path.exists():
         typer.echo(f"Error: profile not found at {profile_path}", err=True)
         typer.echo(
@@ -125,14 +131,26 @@ def match(
 
     profile = _load_profile(profile_path)
 
+    # Captured before the query: an offer ingested while this run is in
+    # flight may repeat next time, but is never lost.
+    run_started_at = datetime.now(timezone.utc)
+    since = None if show_all else _read_last_match_run()
+
     async def _run():
         embedder = await build_embedder()
         repository = await build_repository(embedder=embedder)
         use_case = MatchProfileUseCase(embedder, repository)
-        return await use_case.execute(profile, limit=limit)
+        return await use_case.execute(profile, limit=limit, since=since)
 
     result = asyncio.run(_run())
+    # Before display: _display_search_result exits early on empty results.
+    _write_last_match_run(run_started_at)
     _display_search_result(result)
+    if len(result.signals) == limit:
+        typer.echo(
+            f"Showing the top {limit} — there may be more. "
+            "Re-run with a higher --limit to see more."
+        )
 
 
 @app.command()
@@ -217,6 +235,31 @@ def _display_search_result(result: SearchResult) -> None:
             typer.echo(f"     ⚡ {s.company_name} raised funding {days_ago}d ago")
         typer.echo(f"     {s.summary[:100]}...")
         typer.echo("")
+
+
+def _read_last_match_run(path: Path = _MATCH_STATE_PATH) -> datetime | None:
+    """Timestamp of the last successful `match` run, or None if unavailable."""
+    if not path.exists():
+        return None
+    try:
+        timestamp = datetime.fromisoformat(path.read_text(encoding="utf-8").strip())
+    except ValueError:
+        timestamp = None
+    if timestamp is None or timestamp.tzinfo is None:
+        typer.echo(
+            f"Warning: ignoring unreadable state file {path}; "
+            "considering every stored offer.",
+            err=True,
+        )
+        return None
+    return timestamp
+
+
+def _write_last_match_run(
+    timestamp: datetime, path: Path = _MATCH_STATE_PATH
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(timestamp.isoformat(), encoding="utf-8")
 
 
 def _append_history(result: IngestResult, elapsed: float) -> None:

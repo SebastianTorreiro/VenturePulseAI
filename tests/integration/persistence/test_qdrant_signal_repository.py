@@ -429,3 +429,34 @@ def test_find_funding_rounds_since_filters_by_type_and_date(
             assert "NotFundingCo" not in names
 
     asyncio.run(scenario())
+
+
+def test_search_detected_after_is_exclusive_at_the_boundary(
+    qdrant_settings, embedding_service
+):
+    async def scenario():
+        async with _repository(qdrant_settings, embedding_service) as repo:
+            cutoff = datetime(2026, 10, 5, 12, 0, 0, 123456, tzinfo=timezone.utc)
+            before = _make_job_offer(company="BeforeCo")
+            before.detected_at = cutoff - timedelta(microseconds=1)
+            exact = _make_job_offer(company="ExactCo")
+            exact.detected_at = cutoff
+            after = _make_job_offer(company="AfterCo")
+            after.detected_at = cutoff + timedelta(microseconds=1)
+
+            for signal in (before, exact, after):
+                embedding = await embedding_service.embed(signal.summary)
+                await repo.save(signal, embedding)
+
+            query = await embedding_service.embed("machine learning engineer")
+            results = await repo.search(
+                query,
+                SignalFilter(signal_type="job_offer", detected_after=cutoff),
+                limit=10,
+            )
+
+            # A signal detected exactly at the stored timestamp must not
+            # reappear in the next `match` digest.
+            assert {r.signal.company_name for r in results} == {"AfterCo"}
+
+    asyncio.run(scenario())
