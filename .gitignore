@@ -214,6 +214,9 @@ profile/developer_profile.yaml
 # Local run history — personal collection data, not for the repo
 data/*.csv
 
+# Local state for the `match` digest (timestamp of the last run)
+data/match_last_run.txt
+
 
 # documentacion privada
 

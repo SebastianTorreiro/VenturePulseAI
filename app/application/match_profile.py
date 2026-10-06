@@ -3,6 +3,8 @@
 Imports only from app.domain.* — no infrastructure.
 """
 
+from datetime import datetime
+
 from app.application.search_signals import SearchResult
 from app.domain.entities.developer_profile import DeveloperProfile
 from app.domain.ports.embedding_service import IEmbeddingService
@@ -17,10 +19,13 @@ class MatchProfileUseCase:
         self._repo = repository
 
     async def execute(
-        self, profile: DeveloperProfile, limit: int = 10
+        self,
+        profile: DeveloperProfile,
+        limit: int = 10,
+        since: datetime | None = None,
     ) -> SearchResult:
         embedding = await self._embedder.embed(profile.embedding_text)
-        filters = SignalFilter(signal_type="job_offer")
+        filters = SignalFilter(signal_type="job_offer", detected_after=since)
         results = await self._repo.search(embedding, filters, limit)
         return SearchResult(
             signals=tuple(results),
